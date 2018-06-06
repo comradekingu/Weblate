@@ -137,7 +137,7 @@ class Project(models.Model, URLMixin, PathMixin):
         self.stats = ProjectStats(self)
 
     def add_user(self, user, group=None):
-        """Add user based on local-part of email address."""
+        """Add user based on username or email address."""
         if group is None:
             if self.access_control != self.ACCESS_PUBLIC:
                 group = '@Translate'
@@ -148,7 +148,7 @@ class Project(models.Model, URLMixin, PathMixin):
         user.profile.subscriptions.add(self)
 
     def remove_user(self, user, group=None):
-        """Add user based on local-part of email address."""
+        """Add user based on username or email address."""
         if group is None:
             groups = self.group_set.filter(
                 internal=True, name__contains='@'
