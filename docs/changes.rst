@@ -180,7 +180,7 @@ Released on March 11th 2020.
 * Fixed notifications rendering in Gmail.
 * Fixed reverting changes from the history.
 * Added links to events in digest notifications.
-* Fixed email for account removal confirmation.
+* Fixed e-mail for account removal confirmation.
 * Added support for Slack authentication in Docker container.
 * Avoid sending notifications for not subscribed languages.
 * Include Celery queues in performance overview.
