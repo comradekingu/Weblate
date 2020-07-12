@@ -449,7 +449,7 @@ Translation file format, see also :ref:`formats`.
 Source string bug report address
 ++++++++++++++++++++++++++++++++
 
-Email address used for reporting upstream bugs. This address will also receive
+E-mail address used for reporting upstream bugs. This address will also receive
 notification about any source string comments made in Weblate.
 
 .. _component-allow_translation_propagation:
@@ -590,7 +590,7 @@ Default value can be changed by :setting:`DEFAULT_COMMITER_NAME`.
 Committer e-mail
 ++++++++++++++++
 
-Email of committer used for Weblate commits, the author will always be the
+E-mail of committer used for Weblate commits, the author will always be the
 real translator. On some VCSs this might be not supported. The default value
 can be changed in :setting:`DEFAULT_COMMITER_EMAIL`.
 
