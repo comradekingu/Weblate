@@ -879,7 +879,7 @@ instance when running Weblate in Docker.
 
     Can be used to disable SSL certificate verification for Redis connection.
 
-Email server setup
+E-mail server setup
 ~~~~~~~~~~~~~~~~~~
 
 To make outgoing e-mail work, you need to provide a mail server.
@@ -927,13 +927,13 @@ Example SSL configuration:
 
 .. envvar:: WEBLATE_EMAIL_HOST_USER
 
-    Email authentication user.
+    E-mail authentication user.
 
     .. seealso:: :setting:`django:EMAIL_HOST_USER`
 
 .. envvar:: WEBLATE_EMAIL_HOST_PASSWORD
 
-    Email authentication password.
+    E-mail authentication password.
 
     .. seealso:: :setting:`django:EMAIL_HOST_PASSWORD`
 
