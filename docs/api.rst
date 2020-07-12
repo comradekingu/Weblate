@@ -231,7 +231,7 @@ Users
     :type username: string
     :param full_name: User full name
     :type full_name: string
-    :param email: User email
+    :param email: User e-mail
     :type email: string
     :param is_superuser: Is user superuser? (optional)
     :type is_superuser: boolean
@@ -246,8 +246,8 @@ Users
     :type username: string
     :>json string username: username of a user
     :>json string full_name: full name of a user
-    :>json string email: email of a user
-    :>json boolean is_superuser: whether the user is a super user
+    :>json string email: e-mail of a user
+    :>json boolean is_superuser: whether the user is a superuser
     :>json boolean is_active: whether the user is active
     :>json string date_joined: date the user is created
     :>json array groups: link to associated groups; see :http:get:`/api/groups/(int:id)/`
@@ -278,8 +278,8 @@ Users
     :type username: string
     :>json string username: username of a user
     :>json string full_name: full name of a user
-    :>json string email: email of a user
-    :>json boolean is_superuser: whether the user is a super user
+    :>json string email: e-mail of a user
+    :>json boolean is_superuser: whether the user is a superuser
     :>json boolean is_active: whether the user is active
     :>json string date_joined: date the user is created
 
@@ -291,8 +291,8 @@ Users
     :type username: string
     :>json string username: username of a user
     :>json string full_name: full name of a user
-    :>json string email: email of a user
-    :>json boolean is_superuser: whether the user is a super user
+    :>json string email: e-mail of a user
+    :>json boolean is_superuser: whether the user is a superuser
     :>json boolean is_active: whether the user is active
     :>json string date_joined: date the user is created
 
