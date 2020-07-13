@@ -168,14 +168,14 @@ to a containing project as well.
 
 .. note::
 
-   Only first rule which is set is being used. So if you set all
+   Only the first rule set will be being used. So if you set all of
    :guilabel:`Component list`, :guilabel:`Components` and :guilabel:`Project`,
    only :guilabel:`Component list` is being applied.
 
-Additional step is performed if checking permission for the translation:
+An additional step is performed if checking permission for the translation:
 
 
-4. :guilabel:`Languages` are matches against scope of translations, if not set, this matches no
+4. :guilabel:`Languages` are matches against the scope of translations, if not set, this matches no
    language.
 
 .. hint::
