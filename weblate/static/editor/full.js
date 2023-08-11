@@ -1,3 +1,7 @@
+// Copyright © Michal Čihař <michal@weblate.org>
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 (function () {
   var EditorBase = WLT.Editor.Base;
 
@@ -18,9 +22,11 @@
     /* Copy machinery results */
     this.$editor.on("click", ".js-copy-machinery", (e) => {
       var $el = $(e.target);
-      var text = $el.parent().parent().data("raw").text;
+      var raw = $el.parent().parent().data("raw");
 
-      this.$translationArea.replaceValue(text);
+      raw.plural_forms.forEach((plural_form) => {
+        $(this.$translationArea.get(plural_form)).replaceValue(raw.text);
+      });
       autosize.update(this.$translationArea);
       WLT.Utils.markFuzzy(this.$translationForm);
     });
@@ -28,12 +34,49 @@
     /* Copy and save machinery results */
     this.$editor.on("click", ".js-copy-save-machinery", (e) => {
       var $el = $(e.target);
-      var text = $el.parent().parent().data("raw").text;
+      var raw = $el.parent().parent().data("raw");
 
-      this.$translationArea.replaceValue(text);
+      raw.plural_forms.forEach((plural_form) => {
+        $(this.$translationArea.get(plural_form)).replaceValue(raw.text);
+      });
       autosize.update(this.$translationArea);
       WLT.Utils.markTranslated(this.$translationForm);
       submitForm({ target: this.$translationArea });
+    });
+
+    /* Delete machinery results */
+    this.$editor.on("click", ".js-delete-machinery", (e) => {
+      var $el = $(e.target);
+
+      /* Delete Url dialog */
+      var $deleteEntriesDialog = null;
+      this.$editor.on("show.bs.modal", "#delete-url-modal", (e) => {
+        $deleteEntriesDialog = $(e.currentTarget);
+        $deleteEntriesDialog.find(".modal-body").html("");
+        var text = $el.parent().parent().data("raw").text;
+        var modalBody = this.machinery.renderDeleteUrls(text);
+        $deleteEntriesDialog.find(".modal-body").append(modalBody);
+      });
+
+      this.$editor.on("hide.bs.modal", "#delete-url-modal", (e) => {
+        $deleteEntriesDialog = null;
+      });
+
+      this.$editor.on("submit", ".delete-url-form", (e) => {
+        var $form = $(e.currentTarget);
+        var $deleteEntries = $form.find("input.form-check-input:checked");
+        if ($deleteEntriesDialog === null) {
+          return false;
+        }
+        $deleteEntriesDialog.modal("hide");
+
+        Object.entries($deleteEntries).forEach(([_, entry]) => {
+          if (typeof entry.id !== "undefined") {
+            this.removeTranslationEntry(entry.id);
+          }
+        });
+        return false;
+      });
     });
 
     Mousetrap.bindGlobal("alt+end", function (e) {
@@ -45,7 +88,7 @@
       function (e) {
         window.location = $("#button-next").attr("href");
         return false;
-      }
+      },
     );
     Mousetrap.bindGlobal(["alt+pageup", "mod+up", "alt+up"], function (e) {
       window.location = $("#button-prev").attr("href");
@@ -56,16 +99,19 @@
       return false;
     });
     Mousetrap.bindGlobal("mod+o", function (e) {
-      $(".translation-item .copy-text").click();
+      $(".source-language-group [data-clone-text]").click();
       return false;
     });
     Mousetrap.bindGlobal("mod+y", function (e) {
       $('input[name="fuzzy"]').click();
       return false;
     });
-    Mousetrap.bindGlobal("mod+shift+enter", function (e) {
+    Mousetrap.bindGlobal("mod+shift+enter", function (e, combo) {
       $('input[name="fuzzy"]').prop("checked", false);
-      return submitForm(e);
+      return submitForm(e, combo);
+    });
+    Mousetrap.bindGlobal("alt+enter", function (e, combo) {
+      return submitForm(e, combo, 'button[name="suggest"]');
     });
     Mousetrap.bindGlobal("mod+e", () => {
       this.$translationArea.get(0).focus();
@@ -106,9 +152,19 @@
         {
           scrollTop: $("#comment-form").offset().top,
         },
-        1000
+        1000,
       );
       $("#id_comment").focus();
+    });
+
+    this.$translationForm.on("click", ".add-alternative-post", function () {
+      var elm = $("<input>")
+        .attr("type", "hidden")
+        .attr("name", "add_alternative")
+        .attr("value", "1");
+      self.$translationForm.append(elm);
+      self.$translationForm.submit();
+      return false;
     });
 
     /* Form persistence. Restores translation form upon comment submission */
@@ -144,11 +200,17 @@
   FullEditor.prototype.initTabs = function () {
     /* Store active tab in a cookie */
     $('.translation-tabs a[data-toggle="tab"]').on("shown.bs.tab", function () {
-      Cookies.remove("translate-tab", { path: "" });
-      Cookies.set("translate-tab", $(this).attr("href"), {
-        path: "/",
-        expires: 365,
-      });
+      let current = Cookies.get("translate-tab");
+      let desired = $(this).attr("href");
+
+      if (current !== desired) {
+        Cookies.set("translate-tab", desired, {
+          path: "/",
+          expires: 365,
+          sameSite: "Lax",
+          secure: window.location.protocol === "https:",
+        });
+      }
     });
 
     /* Machinery */
@@ -194,6 +256,20 @@
     });
   };
 
+  FullEditor.prototype.removeTranslationEntry = function (delete_url) {
+    $.ajax({
+      type: "DELETE",
+      url: delete_url,
+      headers: { "X-CSRFToken": this.csrfToken },
+      success: () => {
+        addAlert(gettext("Translation memory entry removed."));
+      },
+      error: (jqXHR, textStatus, errorThrown) => {
+        addAlert(errorThrown);
+      },
+    });
+  };
+
   FullEditor.prototype.fetchMachinery = function (serviceName) {
     $.ajax({
       type: "POST",
@@ -214,7 +290,7 @@
   FullEditor.prototype.processMachineryError = function (
     jqXHR,
     textStatus,
-    errorThrown
+    errorThrown,
   ) {
     decreaseLoading("machinery");
     if (jqXHR.state() !== "rejected") {
@@ -223,7 +299,7 @@
           " " +
           textStatus +
           ": " +
-          errorThrown
+          errorThrown,
       );
     }
   };
@@ -233,7 +309,7 @@
     if (data.responseStatus !== 200) {
       var msg = interpolate(
         gettext("The request for machine translation using %s has failed:"),
-        [data.service]
+        [data.service],
       );
       addAlert(msg + " " + data.responseDetails);
 
@@ -245,6 +321,7 @@
         ...this.machinery.state.translations,
         ...data.translations,
       ],
+      weblateTranslationMemory: new Set(),
       lang: data.lang,
       dir: data.dir,
     });
@@ -272,7 +349,7 @@
         }
         $(this)
           .find(".machinery-number")
-          .html(' <kbd title="' + title + '">' + key + "</kbd>");
+          .html($("<kbd/>").attr("title", title).text(key));
         Mousetrap.bindGlobal(["mod+m " + key, "mod+m mod+" + key], function () {
           $translationRows.eq(idx).find(".js-copy-machinery").click();
           return false;
@@ -302,20 +379,34 @@
     /* Check ignoring */
     this.$editor.on("click", ".check-dismiss", (e) => {
       var $el = $(e.currentTarget);
+      var url = $el.attr("href");
+      var $check = $el.closest(".check");
+      var dismiss_all = $check.find("input").prop("checked");
+      if (dismiss_all) {
+        url = $el.data("dismiss-all");
+      }
+
       $.ajax({
         type: "POST",
-        url: $el.attr("href"),
+        url: url,
         data: {
           csrfmiddlewaretoken: this.csrfToken,
         },
         error: function (jqXHR, textStatus, errorThrown) {
           addAlert(errorThrown);
         },
+        success: function (data) {
+          if (dismiss_all) {
+            const { extra_flags, all_flags } = data;
+            $("#id_extra_flags").val(extra_flags);
+            $("#unit_all_flags").html(all_flags).addClass("flags-updated");
+          }
+        },
       });
-      if ($el.hasClass("check-dismiss-all")) {
-        $el.closest(".check").remove();
+      if (dismiss_all) {
+        $check.remove();
       } else {
-        $el.closest(".check").toggleClass("check-dismissed");
+        $check.toggleClass("check-dismissed");
       }
       return false;
     });
@@ -362,17 +453,17 @@
         } else {
           title = interpolate(
             gettext("Press Ctrl+I then %s to dismiss this."),
-            [key]
+            [key],
           );
         }
-        $number.html(' <kbd title="' + title + '">' + key + "</kbd>");
+        $number.html($("<kbd/>").attr("title", title).text(key));
 
         Mousetrap.bindGlobal(
           ["mod+i " + key, "mod+i mod+" + key],
           function (e) {
             $this.find(".check-dismiss-single").click();
             return false;
-          }
+          },
         );
       } else {
         $number.html("");
@@ -387,11 +478,14 @@
       if ($(e.target).parents("a").length > 0) {
         return;
       }
-      console.log(e.target);
-      console.log(e.currentTarget);
-      var text = $(e.currentTarget).find(".target").text();
 
-      this.insertIntoTranslation(text);
+      var target = $(e.currentTarget);
+      var text = target.find(".target").text();
+      if (target.hasClass("warning")) {
+        text = target.find(".source").text();
+      }
+
+      this.insertIntoTranslation($.trim(text));
       e.preventDefault();
     });
 
@@ -399,6 +493,27 @@
     var $glossaryDialog = null;
     this.$editor.on("show.bs.modal", "#add-glossary-form", (e) => {
       $glossaryDialog = $(e.currentTarget);
+
+      /* Prefill adding to glossary with current string */
+      if (e.target.hasAttribute("data-shown")) {
+        return;
+      }
+      /* Relies on clone source implementation */
+      let cloneElement = document.querySelector(
+        ".source-language-group [data-clone-text]",
+      );
+      if (cloneElement !== null) {
+        let source = cloneElement.getAttribute("data-clone-text");
+        if (source.length < 200) {
+          let term_source = document.getElementById("id_add_term_source");
+          let term_target = document.getElementById("id_add_term_target");
+          term_source.value = source;
+          term_target.value = document.querySelector(
+            ".translation-editor",
+          ).value;
+        }
+      }
+      e.target.setAttribute("data-shown", true);
     });
     this.$editor.on("hidden.bs.modal", "#add-glossary-form", () => {
       this.$translationArea.first().focus();
@@ -420,8 +535,10 @@
           if (data.responseCode === 200) {
             $("#glossary-terms").html(data.results);
             $form.find("[name=terms]").attr("value", data.terms);
+            $form.trigger("reset");
+          } else {
+            addAlert(data.responseDetails);
           }
-          $form.trigger("reset");
         },
         error: function (xhr, textStatus, errorThrown) {
           addAlert(errorThrown);
@@ -440,6 +557,7 @@
     constructor(initialState = {}) {
       this.state = {
         translations: [],
+        weblateTranslationMemory: new Set(),
         lang: null,
         dir: null,
       };
@@ -450,57 +568,55 @@
     }
 
     renderTranslation(el, service) {
-      var row = $("<tr/>").attr("class", "js-copy-machinery").data("raw", el);
+      el.plural_forms = [el.plural_form];
+      var row = $("<tr/>").data("raw", el);
       row.append(
         $("<td/>")
           .attr("class", "target machinery-text")
           .attr("lang", this.state.lang)
           .attr("dir", this.state.dir)
-          .text(el.text)
+          .text(el.text),
       );
+      row.append($("<td>").html(el.diff));
       row.append($("<td/>").attr("class", "machinery-text").text(el.source));
       row.append(service);
 
       /* Quality score as bar with the text */
-      row.append(
-        $(
-          "<td>" +
-            '<div class="progress" title="' +
-            el.quality +
-            ' / 100">' +
-            '<div class="progress-bar ' +
-            (el.quality >= 70
-              ? "progress-bar-success"
-              : el.quality >= 50
-              ? "progress-bar-warning"
-              : "progress-bar-danger") +
-            '"' +
-            ' role="progressbar" aria-valuenow="' +
-            el.quality +
-            '"' +
-            ' aria-valuemin="0" aria-valuemax="100" style="width: ' +
-            el.quality +
-            '%;"></div>' +
-            "</div>" +
-            "</td>"
-        )
-      );
+      let quality_cell = $("<td class='number'></td>");
+      if (el.show_quality) {
+        quality_cell.html("<strong>" + el.quality + "</strong> %");
+      }
+      row.append(quality_cell);
       /* Translators: Verb for copy operation */
       row.append(
         $(
           "<td>" +
             '<a class="js-copy-machinery btn btn-warning">' +
-            gettext("Copy") +
+            gettext("Clone to translation") +
             '<span class="mt-number text-info"></span>' +
             "</a>" +
             "</td>" +
             "<td>" +
             '<a class="js-copy-save-machinery btn btn-primary">' +
-            gettext("Copy and save") +
+            gettext("Accept") +
             "</a>" +
-            "</td>"
-        )
+            "</td>",
+        ),
       );
+
+      if (this.state.weblateTranslationMemory.has(el.text)) {
+        row.append(
+          $(
+            "<td>" +
+              '<a class="js-delete-machinery btn btn-danger" data-toggle="modal" data-target="#delete-url-modal">' +
+              gettext("Delete entry") +
+              "</a>" +
+              "</td>",
+          ),
+        );
+      } else {
+        row.append($("<td></td>"));
+      }
 
       return row;
     }
@@ -510,6 +626,7 @@
       if (typeof el.origin !== "undefined") {
         service.append(" (");
         var origin;
+        var deleteUrl = false;
         if (typeof el.origin_detail !== "undefined") {
           origin = $("<abbr/>").text(el.origin).attr("title", el.origin_detail);
         } else if (typeof el.origin_url !== "undefined") {
@@ -517,10 +634,41 @@
         } else {
           origin = el.origin;
         }
+        if (el.delete_url) {
+          this.state.weblateTranslationMemory.add(el.text);
+        }
         service.append(origin);
         service.append(")");
       }
       return service;
+    }
+
+    renderDeleteUrls(text) {
+      var translations = this.state.translations;
+      var modalBody = $("<label>").text("");
+
+      translations.forEach((translation) => {
+        if (
+          text === translation.text &&
+          typeof translation.delete_url !== "undefined"
+        ) {
+          var inputElement = $("<input>")
+            .attr("class", "form-check-input")
+            .attr("type", "checkbox")
+            .attr("value", "")
+            .attr("id", translation.delete_url)
+            .attr("checked", true);
+          var labelElement = $("<label>")
+            .attr("class", "form-check-label")
+            .attr("for", translation.delete_url)
+            .text(translation.origin);
+          var divElement = $("<div>")
+            .attr("class", "form-check")
+            .append(inputElement, labelElement);
+          modalBody.append(divElement);
+        }
+      });
+      return modalBody;
     }
 
     render(translations) {
@@ -538,8 +686,18 @@
             base.text == translation.text &&
             base.source == translation.source
           ) {
+            // Add plural
+            if (!base.plural_forms.includes(translation.plural_form)) {
+              base.plural_forms.push(translation.plural_form);
+            }
             // Add origin to current ones
-            var current = $this.children("td:nth-child(3)");
+            var current = $this.children("td:nth-child(4)");
+            if (base.quality < translation.quality) {
+              service.append("<br/>");
+              service.append(current.html());
+              $this.remove();
+              return false;
+            }
             current.append($("<br/>"));
             current.append(service.html());
             done = true;

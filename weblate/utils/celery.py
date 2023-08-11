@@ -1,29 +1,15 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Celery integration helper tools."""
 
 import os
 
 from celery import Celery
-from celery.signals import task_failure
+from celery.signals import after_setup_logger, task_failure
 from django.conf import settings
+from django.core.checks import run_checks
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "weblate.settings")
@@ -45,7 +31,7 @@ def handle_task_failure(exception=None, **kwargs):
     from weblate.utils.errors import report_error
 
     report_error(
-        extra_data=kwargs,
+        extra_log=repr(kwargs),
         cause="Failure while executing task",
         skip_sentry=True,
         print_tb=True,
@@ -55,17 +41,21 @@ def handle_task_failure(exception=None, **kwargs):
 
 @app.on_after_configure.connect
 def configure_error_handling(sender, **kargs):
-    """Rollbar and Sentry integration.
-
-    Based on
-    https://www.mattlayman.com/blog/2017/django-celery-rollbar/
-    """
-    if not bool(os.environ.get("CELERY_WORKER_RUNNING", False)):
-        return
-
+    """Rollbar and Sentry integration."""
     from weblate.utils.errors import init_error_collection
 
     init_error_collection(celery=True)
+
+
+@after_setup_logger.connect
+def show_failing_system_check(sender, logger, **kwargs):
+    if settings.DEBUG:
+        for check in run_checks(include_deployment_checks=True):
+            # Skip silenced checks and Celery one
+            # (it fails when started from Celery startup)
+            if check.is_silenced() or check.id == "weblate.E019":
+                continue
+            logger.warning("%s", check)
 
 
 def get_queue_length(queue="celery"):
@@ -90,7 +80,8 @@ def get_queue_stats():
 
 
 def is_task_ready(task):
-    """Workaround broken ready() for failed Celery results.
+    """
+    Workaround broken ready() for failed Celery results.
 
     In case the task ends with an exception, the result tries to reconstruct
     that. It can fail in case the exception can not be reconstructed using

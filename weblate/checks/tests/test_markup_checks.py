@@ -1,21 +1,6 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Tests for markup quality checks."""
 
@@ -68,6 +53,10 @@ class XMLValidityCheckTest(CheckTestCase):
             True, ("<emphasis>2nd</emphasis>", "<emphasis>not< /emphasis>", "")
         )
 
+    def test_safe_html(self):
+        self.do_test(True, ("<br />", "<br>", ""))
+        self.do_test(False, ("<br />", "<br>", "safe-html"))
+
     def test_root(self):
         self.do_test(
             False,
@@ -88,6 +77,19 @@ class XMLValidityCheckTest(CheckTestCase):
 
     def test_html(self):
         self.do_test(False, ("This is<br>valid HTML", "Toto je<br>platne HTML", ""))
+
+    def test_skip_mixed(self):
+        self.do_test(
+            False,
+            (
+                ["<emphasis>1st</emphasis>", "<invalid>"],
+                "<emphasis>not</ emphasis>",
+                "",
+            ),
+        )
+
+    def test_nonxml(self):
+        self.do_test(False, ("Source", "<<target>>", ""))
 
 
 class XMLTagsCheckTest(CheckTestCase):
@@ -209,14 +211,14 @@ class MarkdownLinkCheckTest(CheckTestCase):
             target="[Moje stránka]",
         )
 
-        self.assertEqual(self.check.get_fixup(unit), None)
+        self.assertIsNone(self.check.get_fixup(unit))
 
     def test_mutliple_ordered(self):
         self.do_test(
             False,
             (
                 "[Weblate](#weblate) has an [example]({{example}}) "
-                "for illustrating the useage of [Weblate](#weblate)",
+                "for illustrating the usage of [Weblate](#weblate)",
                 "Ein [Beispiel]({{example}}) in [Webspät](#weblate) "
                 "illustriert die Verwendung von [Webspät](#weblate)",
                 "md-text",
@@ -227,7 +229,7 @@ class MarkdownLinkCheckTest(CheckTestCase):
             True,
             (
                 "[Weblate](#weblate) has an [example]({{example}}) "
-                "for illustrating the useage of [Weblate](#weblate)",
+                "for illustrating the usage of [Weblate](#weblate)",
                 "Ein [Beispiel]({{example}}) in [Webspät](#weblate) "
                 "illustriert die Verwendung von [Webspät](#Webspät)",
                 "md-text",
@@ -237,7 +239,7 @@ class MarkdownLinkCheckTest(CheckTestCase):
             True,
             (
                 "[Weblate](#weblate) has an [example]({{example}}) "
-                "for illustrating the useage of [Weblate](#weblate)",
+                "for illustrating the usage of [Weblate](#weblate)",
                 "Ein [Beispiel]({{example}}) in [Webspät](#weblate) "
                 "illustriert die Verwendung von Webspät",
                 "md-text",
@@ -336,3 +338,37 @@ class SafeHTMLCheckTest(CheckTestCase):
         self.test_failure_1 = (safe, '<a href="javascript:foo()">link</a>', "safe-html")
         self.test_failure_2 = (safe, '<a href="#" onclick="x()">link</a>', "safe-html")
         self.test_failure_3 = (safe, '<iframe src="xxx"></iframe>', "safe-html")
+
+    def test_markdown(self):
+        self.do_test(
+            False,
+            (
+                "See <https://weblate.org>",
+                "Viz <https://weblate.org>",
+                "md-text,safe-html",
+            ),
+        )
+        self.do_test(
+            True,
+            (
+                "See <https://weblate.org>",
+                "Viz <https://weblate.org>",
+                "safe-html",
+            ),
+        )
+        self.do_test(
+            False,
+            (
+                "See <noreply@weblate.org>",
+                "Viz <noreply@weblate.org>",
+                "md-text,safe-html",
+            ),
+        )
+        self.do_test(
+            True,
+            (
+                "See <noreply@weblate.org>",
+                "Viz <noreply@weblate.org>",
+                "safe-html",
+            ),
+        )

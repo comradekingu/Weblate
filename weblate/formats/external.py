@@ -1,45 +1,36 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """External file format specific behavior."""
 
+from __future__ import annotations
+
 import os
-import re
 from io import BytesIO, StringIO
+from typing import Callable
 from zipfile import BadZipFile
 
-from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_lazy
 from openpyxl import Workbook, load_workbook
-from openpyxl.cell.cell import TYPE_STRING
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE, TYPE_STRING
 from translate.storage.csvl10n import csv
 
 from weblate.formats.helpers import BytesIOMode
 from weblate.formats.ttkit import CSVFormat
 
-# use the same relugar expression as in openpyxl.cell
-# to remove illegal characters
-ILLEGAL_CHARACTERS_RE = re.compile(r"[\000-\010]|[\013-\014]|[\016-\037]")
-
 
 class XlsxFormat(CSVFormat):
-    name = _("Excel Open XML")
+    name = gettext_lazy("Excel Open XML")
     format_id = "xlsx"
     autoload = ("*.xlsx",)
+
+    def write_cell(self, worksheet, column: int, row: int, value: str):
+        cell = worksheet.cell(column=column, row=row)
+        cell.value = value
+        # Set the data_type after value to override function auto-detection
+        cell.data_type = TYPE_STRING
+        return cell
 
     def save_content(self, handle):
         workbook = Workbook()
@@ -49,15 +40,19 @@ class XlsxFormat(CSVFormat):
 
         # write headers
         for column, field in enumerate(self.store.fieldnames):
-            worksheet.cell(column=1 + column, row=1, value=field)
+            self.write_cell(worksheet, column + 1, 1, field)
 
         for row, unit in enumerate(self.store.units):
             data = unit.todict()
 
             for column, field in enumerate(self.store.fieldnames):
-                cell = worksheet.cell(column=1 + column, row=2 + row)
-                cell.data_type = TYPE_STRING
-                cell.value = ILLEGAL_CHARACTERS_RE.sub("", data[field])
+                self.write_cell(
+                    worksheet,
+                    column + 1,
+                    row + 2,
+                    ILLEGAL_CHARACTERS_RE.sub("", data[field]),
+                )
+
         workbook.save(handle)
 
     @staticmethod
@@ -67,8 +62,7 @@ class XlsxFormat(CSVFormat):
         XlsxFormat(store).save_content(output)
         return output.getvalue()
 
-    @classmethod
-    def parse_store(cls, storefile):
+    def parse_store(self, storefile):
         # try to load the given file via openpyxl
         # catch at least the BadZipFile exception if an unsupported
         # file has been given
@@ -107,12 +101,20 @@ class XlsxFormat(CSVFormat):
         return "xlsx"
 
     @classmethod
-    def create_new_file(cls, filename, language, base):
+    def create_new_file(
+        cls,
+        filename: str,
+        language: str,
+        base: str,
+        callback: Callable | None = None,
+    ):
         """Handle creation of new translation file."""
         if not base:
             raise ValueError("Not supported")
         # Parse file
-        store = cls.parse_store(base)
-        cls.untranslate_store(store, language)
+        store = cls(base)
+        if callback:
+            callback(store)
+        store.untranslate_store(language)
         with open(filename, "wb") as handle:
-            XlsxFormat(store).save_content(handle)
+            XlsxFormat(store.store).save_content(handle)

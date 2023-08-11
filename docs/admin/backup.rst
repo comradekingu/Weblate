@@ -3,10 +3,37 @@
 Backing up and moving Weblate
 =============================
 
+.. _projectbackup:
+
+Project level backups
+---------------------
+
+.. versionadded:: 4.14
+
+.. warning::
+
+   Restoring backups is only supported when using PostgreSQL or MariaDB 10.5+ as a database.
+
+The project backups all translation content from Weblate (project, components,
+translations, string comments, suggestions or checks). It is suitable for
+transferring a project to another Weblate instance.
+
+You can perform a project backup in :guilabel:`Manage` ↓ :guilabel:`Backups`.
+The backup can be restored when creating a project (see
+:ref:`adding-projects`).
+
+The backups currently do not include access control information and history.
+
+The comments and suggestions are backed up with an username of user who did
+create them. Upon import it is assigned to a matching user. If there is no user
+with such username, it is assigned to anonymous user.
+
+The generated backups are kept on the server as configured by
+:setting:`PROJECT_BACKUP_KEEP_DAYS` and :setting:`PROJECT_BACKUP_KEEP_COUNT`
+(it defaults to keep at most 3 backups for 30 days).
+
 Automated backup using BorgBackup
 ---------------------------------
-
-.. versionadded:: 3.9
 
 Weblate has built-in support for creating service backups using `BorgBackup`_.
 Borg creates space-effective encrypted backups which can be safely stored in
@@ -23,7 +50,7 @@ The backups using Borg are incremental and Weblate is configured to keep followi
 * Weekly backups for 8 weeks back
 * Monthly backups for 6 months back
 
-.. image:: /images/backups.png
+.. image:: /screenshots/backups.webp
 
 .. _borg-keys:
 
@@ -40,6 +67,12 @@ too, as it’s used to access your backups.
 .. seealso::
 
    :doc:`borg:usage/init`
+
+Customizing backup
+~~~~~~~~~~~~~~~~~~
+
+* The database backup can be configured via :setting:`DATABASE_BACKUP`.
+* The backup creation can be customized using :setting:`BORG_EXTRA_ARGS`.
 
 .. _cloudbackup:
 
@@ -109,18 +142,24 @@ to create it but needs the appropriate permissions to do so.
 Remote backups
 ~~~~~~~~~~~~~~
 
-In order to create the remote backups, you will have to install `BorgBackup`_
-onto another server that’s accessible via SSH. Make sure
-that it accepts the Weblate's client SSH key, i.e. the one it uses to connect
-to other servers.
+For creating remote backups, you will have to install `BorgBackup`_
+onto another server that’s accessible for your Weblate deployment
+via SSH using the Weblate SSH key:
+
+1. Prepare a server where your backups will be stored.
+2. Install the SSH server on it (you will get it by default with most Linux distributions).
+3. Install `BorgBackup`_ on that server; most Linux distributions have packages available (see :doc:`borg:installation`).
+4. Choose an existing user or create a new user that will be used for backing up.
+5. Add Weblate SSH key to the user so that Weblate can SSH to the server without a password (see :ref:`weblate-ssh-key`).
+6. Configure the backup location in Weblate as ``user@host:/path/to/backups`` or ``ssh://user@host:port/path/to/backups``.
 
 .. hint::
 
-    :ref:`cloudbackup` provides you automated remote backups.
+    :ref:`cloudbackup` provides you automated remote backups without any effort.
 
 .. seealso::
 
-   :ref:`weblate-ssh-key`
+   :ref:`weblate-ssh-key`, :doc:`borg:usage/general`
 
 Restoring from BorgBackup
 -------------------------
@@ -133,9 +172,20 @@ Restoring from BorgBackup
 
 4. Restore the database from the SQL dump placed in the ``backup`` directory in the Weblate data dir (see :ref:`backup-dumps`).
 
-5. Copy the Weblate configuration (:file:`backups/settings.py`, see :ref:`backup-dumps`) to the correct location, see :ref:`configuration`.
+5. Copy the Weblate configuration (:file:`backups/settings.py`, see
+   :ref:`backup-dumps`) to the correct location, see :ref:`configuration`.
 
-6. Copy the whole restored data dir to the location configured by :setting:`DATA_DIR`.
+   When using Docker container, the settings file is already included in the
+   container and you should restore the original environment variables. The
+   :file:`environment.yml` file might help you with this (see :ref:`backup-dumps`).
+
+6. Copy the whole restored data dir to the location configured by
+   :setting:`DATA_DIR`.
+
+   When using Docker container place the data into the data volume, see
+   :ref:`docker-volume`.
+
+   Please make sure the files have correct ownership and permissions, see :ref:`file-permissions`.
 
 The Borg session might look like this:
 
@@ -190,7 +240,7 @@ tools such as :program:`pg_dump` or :program:`mysqldump`. It usually performs
 better than Django backup, and it restores complete tables with all their data.
 
 You can restore this backup in a newer Weblate release, it will perform all the
-necessary migrations when running in :djadmin:`django:migrate`. Please consult
+necessary migrations when running in :wladmin:`migrate`. Please consult
 :doc:`upgrade` on more detailed info on how to upgrade between versions.
 
 Django database backup
@@ -204,7 +254,7 @@ Prior to restoring the database you need to be running exactly the same Weblate
 version the backup was made on. This is necessary as the database structure does
 change between releases and you would end up corrupting the data in some way.
 After installing the same version, run all database migrations using
-:djadmin:`django:migrate`.
+:wladmin:`migrate`.
 
 Afterwards some entries will already be created in the database and you
 will have them in the database backup as well. The recommended approach is to
@@ -229,6 +279,11 @@ can skip in detail.
 Dumped data for backups
 +++++++++++++++++++++++
 
+.. versionchanged:: 4.7
+
+   The environment dump was added as :file:`environment.yml` to help in
+   restoring in the Docker environments.
+
 Stored in :setting:`DATA_DIR` ``/backups``.
 
 Weblate dumps various data here, and you can include these files for more complete
@@ -237,9 +292,16 @@ backups. The files are updated daily (requires a running Celery beats server, se
 
 * Weblate settings as :file:`settings.py` (there is also expanded version in :file:`settings-expanded.py`).
 * PostgreSQL database backup as :file:`database.sql`.
+* Environment dump as :file:`environment.yml`.
 
 The database backups are saved as plain text by default, but they can also be compressed
 or entirely skipped using :setting:`DATABASE_BACKUP`.
+
+To restore the database backup load it using database tools, for example:
+
+.. code-block:: shell
+
+   psql --file=database.sql weblate
 
 Version control repositories
 ++++++++++++++++++++++++++++
@@ -247,7 +309,7 @@ Version control repositories
 Stored in :setting:`DATA_DIR` ``/vcs``.
 
 The version control repositories contain a copy of your upstream repositories
-with Weblate changes. If you have `Push on commit` enabled for all your
+with Weblate changes. If you have :ref:`component-push_on_commit` enabled for all your
 translation components, all Weblate changes are included upstream. No need to
 back up the repositories on the Weblate side as they can be cloned
 again from the upstream location(s) with no data loss.
@@ -280,7 +342,7 @@ restoration anyhow, so there is no problem in losing these.
 
    :ref:`celery`
 
-Command line for manual backup
+Command-line for manual backup
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Using a cron job, you can set up a Bash command to be executed on a daily basis, for example:
@@ -302,7 +364,7 @@ Restoring manual backup
 
 1. Restore all data you have backed up.
 
-2. Update all repositories using :djadmin:`updategit`.
+2. Update all repositories using :wladmin:`updategit`.
 
    .. code-block:: sh
 
@@ -316,5 +378,5 @@ by following the backing up and restoration instructions above.
 
 .. seealso::
 
-   :ref:`py3`,
+   `Upgrading from Python 2 to Python 3 in the Weblate 3.11.1 documentation <https://docs.weblate.org/en/weblate-3.11.1/admin/upgrade.html#upgrading-from-python-2-to-python-3>`_,
    :ref:`database-migration`

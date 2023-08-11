@@ -1,53 +1,49 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+import sys
+from urllib.parse import quote
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.checks import run_checks
 from django.core.mail import send_mail
-from django.db.models import Count, Q
+from django.db.models import Count
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils import timezone
-from django.utils.translation import gettext as _
-from django.utils.translation import gettext_lazy
+from django.utils.decorators import method_decorator
+from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_POST
+from django.views.generic import ListView
+from django.views.generic.edit import FormMixin
 
+from weblate.accounts.forms import AdminUserSearchForm
+from weblate.accounts.views import UserList
 from weblate.auth.decorators import management_access
-from weblate.auth.forms import AdminInviteUserForm
-from weblate.auth.models import User
+from weblate.auth.forms import AdminInviteUserForm, SitewideTeamForm
+from weblate.auth.models import Group, Invitation, User
 from weblate.configuration.models import Setting
 from weblate.configuration.views import CustomCSSView
 from weblate.trans.forms import AnnouncementForm
 from weblate.trans.models import Alert, Announcement, Component, Project
+from weblate.trans.util import redirect_param
 from weblate.utils import messages
 from weblate.utils.celery import get_queue_stats
+from weblate.utils.checks import measure_cache_latency, measure_database_latency
 from weblate.utils.errors import report_error
 from weblate.utils.tasks import database_backup, settings_backup
+from weblate.utils.version import GIT_LINK, GIT_REVISION
 from weblate.utils.views import show_form_errors
 from weblate.vcs.ssh import (
-    RSA_KEY,
     add_host_key,
     can_generate_key,
     generate_ssh_key,
+    get_all_key_data,
     get_host_keys,
-    get_key_data,
-    ssh_file,
+    get_key_data_raw,
 )
 from weblate.wladmin.forms import (
     ActivateForm,
@@ -55,14 +51,9 @@ from weblate.wladmin.forms import (
     BackupForm,
     SSHAddForm,
     TestMailForm,
-    UserSearchForm,
 )
 from weblate.wladmin.models import BackupService, ConfigurationError, SupportStatus
-from weblate.wladmin.tasks import (
-    backup_service,
-    configuration_health_check,
-    support_status_update,
-)
+from weblate.wladmin.tasks import backup_service, support_status_update
 
 MENU = (
     ("index", "manage", gettext_lazy("Weblate status")),
@@ -73,8 +64,10 @@ MENU = (
     ("alerts", "manage-alerts", gettext_lazy("Alerts")),
     ("repos", "manage-repos", gettext_lazy("Repositories")),
     ("users", "manage-users", gettext_lazy("Users")),
+    ("teams", "manage-teams", gettext_lazy("Teams")),
     ("appearance", "manage-appearance", gettext_lazy("Appearance")),
     ("tools", "manage-tools", gettext_lazy("Tools")),
+    ("machinery", "manage-machinery", gettext_lazy("Automatic suggestions")),
 )
 if "weblate.billing" in settings.INSTALLED_APPS:
     MENU += (("billing", "manage-billing", gettext_lazy("Billing")),)
@@ -95,6 +88,8 @@ def manage(request):
             "menu_page": "index",
             "support": support,
             "activate_form": ActivateForm(initial=initial),
+            "git_revision_link": GIT_LINK,
+            "git_revision": GIT_REVISION,
         },
     )
 
@@ -119,16 +114,17 @@ def tools(request):
             if email_form.is_valid():
                 try:
                     send_test_mail(**email_form.cleaned_data)
-                    messages.success(request, _("Test e-mail sent."))
+                    messages.success(request, gettext("Test e-mail sent."))
                 except Exception as error:
                     report_error()
-                    messages.error(request, _("Could not send test e-mail: %s") % error)
+                    messages.error(
+                        request, gettext("Could not send test e-mail: %s") % error
+                    )
+                return redirect("manage-tools")
 
         if "sentry" in request.POST:
-            try:
-                raise Exception("Test exception")
-            except Exception:
-                report_error()
+            report_error(cause="Test message", message=True, level="info")
+            return redirect("manage-tools")
 
         if "message" in request.POST:
             announce_form = AnnouncementForm(request.POST)
@@ -154,7 +150,14 @@ def tools(request):
 def discovery(request):
     support = SupportStatus.objects.get_current()
 
-    if support.secret:
+    if not support.discoverable and settings.SITE_TITLE == "Weblate":
+        messages.error(
+            request,
+            gettext(
+                "Please change SITE_TITLE in settings to make your Weblate easy to recognize in discover."
+            ),
+        )
+    elif support.secret:
         support.discoverable = not support.discoverable
         support.save(update_fields=["discoverable"])
         support_status_update.delay()
@@ -165,24 +168,30 @@ def discovery(request):
 @management_access
 @require_POST
 def activate(request):
-    form = ActivateForm(request.POST)
-    if form.is_valid():
-        support = SupportStatus(**form.cleaned_data)
+    support = None
+    if "refresh" in request.POST:
+        support = SupportStatus.objects.get_current()
+    else:
+        form = ActivateForm(request.POST)
+        if form.is_valid():
+            support = SupportStatus(**form.cleaned_data)
+        else:
+            show_form_errors(request, form)
+
+    if support is not None:
         try:
             support.refresh()
             support.save()
-            messages.success(request, _("Activation completed."))
+            messages.success(request, gettext("Activation completed."))
         except Exception:
             report_error()
             messages.error(
                 request,
-                _(
+                gettext(
                     "Could not activate your installation. "
                     "Please ensure your activation token is correct."
                 ),
             )
-    else:
-        show_form_errors(request, form)
     return redirect("manage")
 
 
@@ -209,7 +218,7 @@ def backups(request):
             if form.is_valid():
                 form.save()
                 return redirect("manage-backups")
-        elif "remove" in request.POST:
+        elif "remove" in request.POST:  # noqa: R505
             service = BackupService.objects.get(pk=request.POST["service"])
             service.delete()
             return redirect("manage-backups")
@@ -222,7 +231,7 @@ def backups(request):
             settings_backup.delay()
             database_backup.delay()
             backup_service.delay(pk=request.POST["service"])
-            messages.success(request, _("Backup process triggered"))
+            messages.success(request, gettext("Backup process triggered"))
             return redirect("manage-backups")
 
     context = {
@@ -244,7 +253,7 @@ def handle_dismiss(request):
         else:
             error.delete()
     except (ValueError, KeyError, ConfigurationError.DoesNotExist):
-        messages.error(request, _("Could not dismiss the configuration error!"))
+        messages.error(request, gettext("Could not dismiss the configuration error!"))
     return redirect("manage-performance")
 
 
@@ -254,7 +263,6 @@ def performance(request):
     if request.method == "POST":
         return handle_dismiss(request)
     checks = run_checks(include_deployment_checks=True)
-    configuration_health_check.delay()
 
     context = {
         "checks": [check for check in checks if not check.is_silenced()],
@@ -262,6 +270,11 @@ def performance(request):
         "queues": get_queue_stats().items(),
         "menu_items": MENU,
         "menu_page": "performance",
+        "web_encoding": [sys.getfilesystemencoding(), sys.getdefaultencoding()],
+        "celery_encoding": cache.get("celery_encoding"),
+        "celery_latency": cache.get("celery_latency"),
+        "database_latency": measure_database_latency(),
+        "cache_latency": measure_cache_latency(),
     }
 
     return render(request, "manage/performance.html", context)
@@ -269,10 +282,11 @@ def performance(request):
 
 @management_access
 def ssh_key(request):
-    with open(ssh_file(RSA_KEY)) as handle:
-        data = handle.read()
+    filename, data = get_key_data_raw(
+        key_type=request.GET.get("type", "rsa"), kind="private"
+    )
     response = HttpResponse(data, content_type="text/plain")
-    response["Content-Disposition"] = f"attachment; filename={RSA_KEY}"
+    response["Content-Disposition"] = f"attachment; filename={filename}"
     response["Content-Length"] = len(data)
     return response
 
@@ -288,10 +302,11 @@ def ssh(request):
 
     # Generate key if it does not exist yet
     if can_generate and action == "generate":
-        generate_ssh_key(request)
+        generate_ssh_key(request, key_type=request.POST.get("type", "rsa"))
+        return redirect("manage-ssh")
 
     # Read key data if it exists
-    key = get_key_data()
+    keys = get_all_key_data()
 
     # Add host key
     form = SSHAddForm()
@@ -301,8 +316,11 @@ def ssh(request):
             add_host_key(request, **form.cleaned_data)
 
     context = {
-        "public_key": key,
+        "public_ssh_keys": keys,
         "can_generate": can_generate,
+        "missing_ssh_keys": [
+            keydata for keydata in keys.values() if keydata["key"] is None
+        ],
         "host_keys": get_host_keys(),
         "menu_items": MENU,
         "menu_page": "ssh",
@@ -329,58 +347,63 @@ def alerts(request):
     return render(request, "manage/alerts.html", context)
 
 
-@management_access
-def users(request):
-    invite_form = AdminInviteUserForm()
+@method_decorator(management_access, name="dispatch")
+class AdminUserList(UserList):
+    template_name = "manage/users.html"
+    form_class = AdminUserSearchForm
 
-    if request.method == "POST":
+    def get_base_queryset(self):
+        return User.objects.all()
+
+    def post(self, request, **kwargs):
         if "email" in request.POST:
             invite_form = AdminInviteUserForm(request.POST)
             if invite_form.is_valid():
                 invite_form.save(request)
-                messages.success(request, _("User has been invited to this project."))
                 return redirect("manage-users")
+        return super().get(request, **kwargs)
 
-    return render(
-        request,
-        "manage/users.html",
-        {
-            "menu_items": MENU,
-            "menu_page": "users",
-            "invite_form": invite_form,
-            "search_form": UserSearchForm,
-        },
-    )
+    def get_context_data(self, **kwargs):
+        result = super().get_context_data(**kwargs)
+
+        if self.request.method == "POST":
+            invite_form = AdminInviteUserForm(self.request.POST)
+            invite_form.is_valid()
+        else:
+            invite_form = AdminInviteUserForm()
+
+        result["menu_items"] = MENU
+        result["menu_page"] = "users"
+        result["invite_form"] = invite_form
+        result["search_form"] = AdminUserSearchForm()
+        result["invitations"] = Invitation.objects.all().select_related("user")
+        return result
 
 
 @management_access
 def users_check(request):
-    form = UserSearchForm(request.GET if request.GET else None)
+    data = request.GET
+    # Legacy links for care.weblate.org integration
+    if "email" in data and "q" not in data:
+        data = data.copy()
+        data["q"] = data["email"]
+    form = AdminUserSearchForm(data)
 
     user_list = None
     if form.is_valid():
-        email = form.cleaned_data["email"]
-        user_list = User.objects.filter(
-            Q(email=email)
-            | Q(social_auth__verifiedemail__email__iexact=email)
-            | Q(username=email)
-        ).distinct()
-
-    return render(
-        request,
-        "manage/users_check.html",
-        {
-            "menu_items": MENU,
-            "menu_page": "users",
-            "form": form,
-            "users": user_list,
-        },
-    )
+        user_list = User.objects.search(
+            form.cleaned_data.get("q", ""), parser=form.fields["q"].parser
+        )[:2]
+        if user_list.count() != 1:
+            return redirect_param(
+                "manage-users", "?q={}".format(quote(form.cleaned_data["q"]))
+            )
+        return redirect(user_list[0])
+    return redirect("manage-users")
 
 
 @management_access
 def appearance(request):
-
     current = Setting.objects.get_settings_dict(Setting.CATEGORY_UI)
     form = AppearanceForm(initial=current)
 
@@ -439,23 +462,23 @@ def billing(request):
     # We will list all billings anyway, so fetch  them at once
     billings = Billing.objects.prefetch().order_by("expiry", "removal", "id")
 
-    for currrent in billings:
-        if currrent.removal:
-            removal.append(currrent)
-        elif currrent.state == Billing.STATE_TRIAL:
+    for current in billings:
+        if current.removal:
+            removal.append(current)
+        elif current.state == Billing.STATE_TRIAL:
             if (
-                currrent.plan
-                and currrent.plan.price == 0
-                and currrent.payment.get("libre_request")
+                current.plan
+                and current.plan.price == 0
+                and current.payment.get("libre_request")
             ):
-                pending.append(currrent)
-            trial.append(currrent)
-        elif currrent.state == Billing.STATE_TERMINATED:
-            terminated.append(currrent)
-        elif currrent.plan.price:
-            paid.append(currrent)
+                pending.append(current)
+            trial.append(current)
+        elif current.state == Billing.STATE_TERMINATED:
+            terminated.append(current)
+        elif current.plan.price:
+            paid.append(current)
         else:
-            free.append(currrent)
+            free.append(current)
 
     return render(
         request,
@@ -471,3 +494,40 @@ def billing(request):
             "pending": pending,
         },
     )
+
+
+@method_decorator(management_access, name="dispatch")
+class TeamListView(FormMixin, ListView):
+    template_name = "manage/teams.html"
+    paginate_by = 50
+    model = Group
+    form_class = SitewideTeamForm
+
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .prefetch_related("languages", "projects", "components")
+            .filter(defining_project=None)
+            .annotate(Count("user"), Count("autogroup"))
+            .order()
+        )
+
+    def get_context_data(self, **kwargs):
+        result = super().get_context_data(**kwargs)
+        result["menu_items"] = MENU
+        result["menu_page"] = "teams"
+        return result
+
+    def get_success_url(self):
+        return reverse("manage-teams")
+
+    def post(self, request, *args, **kwargs):
+        form = self.get_form()
+        if form.is_valid():
+            return self.form_valid(form)
+        return self.form_invalid(form)
+
+    def form_valid(self, form):
+        form.save()
+        return super().form_valid(form)

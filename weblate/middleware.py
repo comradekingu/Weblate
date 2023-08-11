@@ -1,30 +1,20 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+from __future__ import annotations
 
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_ipv46_address
 from django.http import Http404, HttpResponsePermanentRedirect
+from django.shortcuts import redirect
 from django.urls import is_valid_path, reverse
 from django.utils.http import escape_leading_slashes
+from django.utils.translation import gettext_lazy
 
 from weblate.lang.models import Language
 from weblate.trans.models import Change, Component, Project
@@ -37,12 +27,13 @@ CSP_TEMPLATE = (
     "frame-src 'none'; frame-ancestors 'none';"
 )
 
-# URLs requiring inline javascipt
+# URLs requiring inline javascript
 INLINE_PATHS = {"social:begin", "djangosaml2idp:saml_login_process"}
 
 
 class ProxyMiddleware:
-    """Middleware that updates REMOTE_ADDR from proxy.
+    """
+    Middleware that updates REMOTE_ADDR from proxy.
 
     Note that this can have security implications and settings have to match your actual
     proxy setup.
@@ -62,7 +53,7 @@ class ProxyMiddleware:
             proxy = request.META.get(settings.IP_PROXY_HEADER)
         if proxy:
             # X_FORWARDED_FOR returns client1, proxy1, proxy2,...
-            address = proxy.split(", ")[settings.IP_PROXY_OFFSET].strip()
+            address = proxy.split(",")[settings.IP_PROXY_OFFSET].strip()
             try:
                 validate_ipv46_address(address)
                 request.META["REMOTE_ADDR"] = address
@@ -86,18 +77,24 @@ class RedirectMiddleware:
     def __call__(self, request):
         response = self.get_response(request)
         # This is based on APPEND_SLASH handling in Django
-        if response.status_code == 404:
-            if self.should_redirect_with_slash(request):
-                new_path = request.get_full_path(force_append_slash=True)
-                # Prevent construction of scheme relative urls.
-                new_path = escape_leading_slashes(new_path)
-                return HttpResponsePermanentRedirect(new_path)
+        if response.status_code == 404 and self.should_redirect_with_slash(request):
+            new_path = request.get_full_path(force_append_slash=True)
+            # Prevent construction of scheme relative urls.
+            new_path = escape_leading_slashes(new_path)
+            return HttpResponsePermanentRedirect(new_path)
         return response
 
     def should_redirect_with_slash(self, request):
         path = request.path_info
-        # Avoid redirecting non GET requests, these would fail anyway
-        if path.endswith("/") or request.method != "GET":
+        # Avoid redirecting non GET requests, these would fail anyway due to
+        # missing parameters.
+        # Redirecting on API removes authentication headers in many cases,
+        # so avoid that as well.
+        if (
+            path.endswith("/")
+            or request.method != "GET"
+            or path.startswith(f"{settings.URL_PREFIX}/api")
+        ):
             return False
         urlconf = getattr(request, "urlconf", None)
         slash_path = f"{path}/"
@@ -109,6 +106,8 @@ class RedirectMiddleware:
     def fixup_project(self, slug, request):
         try:
             project = Project.objects.get(slug__iexact=slug)
+        except Project.MultipleObjectsReturned:
+            return None
         except Project.DoesNotExist:
             try:
                 project = (
@@ -143,6 +142,14 @@ class RedirectMiddleware:
         request.user.check_access_component(component)
         return component
 
+    def check_existing_translations(self, name: str, project: Project):
+        """
+        Check in existing translations for specific language.
+
+        Return False if language translation not present, else True.
+        """
+        return any(lang.name == name for lang in project.languages)
+
     def process_exception(self, request, exception):
         if not isinstance(exception, Http404):
             return None
@@ -152,29 +159,48 @@ class RedirectMiddleware:
         except AttributeError:
             return None
 
-        resolver_match = request.resolver_match
-
         kwargs = dict(resolver_match.kwargs)
+        path = list(kwargs.get("path", ()))
+        language_name = None
+        if not path:
+            return None
 
-        if "lang" in kwargs:
-            language = self.fixup_language(kwargs["lang"])
-            if language is None:
+        # Try using last part as a language
+        if len(path) >= 3:
+            language = self.fixup_language(path[-1])
+            if language is not None:
+                path[-1] = language.code
+                language_name = language.name
+
+        project = self.fixup_project(path[0], request)
+        if project is None:
+            return None
+        path[0] = project.slug
+
+        if len(path) >= 2:
+            component = self.fixup_component(path[1], request, project)
+            if component is None:
                 return None
-            kwargs["lang"] = language.code
+            path[1] = component.slug
 
-        if "project" in kwargs:
-            project = self.fixup_project(kwargs["project"], request)
-            if project is None:
-                return None
-            kwargs["project"] = project.slug
+            if language_name:
+                existing_trans = self.check_existing_translations(
+                    language_name, project
+                )
+                if not existing_trans:
+                    messages.add_message(
+                        request,
+                        messages.INFO,
+                        gettext_lazy(
+                            "%s translation is currently not available, "
+                            "but can be added."
+                        )
+                        % language_name,
+                    )
+                    return redirect(reverse("show", kwargs={"path": path[:-1]}))
 
-            if "component" in kwargs:
-                component = self.fixup_component(kwargs["component"], request, project)
-                if component is None:
-                    return None
-                kwargs["component"] = component.slug
-
-        if kwargs != resolver_match.kwargs:
+        if path != kwargs["path"]:
+            kwargs["path"] = path
             query = request.META["QUERY_STRING"]
             if query:
                 query = f"?{query}"
@@ -208,7 +234,9 @@ class SecurityMiddleware:
 
         # Support form
         if request.resolver_match and request.resolver_match.view_name == "manage":
-            script.add("'care.weblate.org'")
+            script.add("care.weblate.org")
+            connect.add("care.weblate.org")
+            style.add("care.weblate.org")
 
         # Rollbar client errors reporting
         if (
@@ -282,5 +310,8 @@ class SecurityMiddleware:
             response["Expect-CT"] = 'max-age=86400, enforce, report-uri="{}"'.format(
                 settings.SENTRY_SECURITY
             )
+
+        # Opt-out from Google FLoC
+        response["Permissions-Policy"] = "interest-cohort=()"
 
         return response

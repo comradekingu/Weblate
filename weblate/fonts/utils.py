@@ -1,21 +1,7 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Font handling wrapper."""
 
 
@@ -28,7 +14,7 @@ import cairo
 import gi
 from django.conf import settings
 from django.core.cache import cache
-from django.utils.html import escape
+from django.utils.html import format_html
 from PIL import ImageFont
 
 from weblate.utils.checks import weblate_check
@@ -36,7 +22,7 @@ from weblate.utils.data import data_dir
 
 gi.require_version("PangoCairo", "1.0")
 gi.require_version("Pango", "1.0")
-from gi.repository import Pango, PangoCairo  # noqa:E402,I001 isort:skip
+from gi.repository import Pango, PangoCairo  # noqa: E402
 
 FONTCONFIG_CONFIG = """<?xml version="1.0"?>
 <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
@@ -45,12 +31,29 @@ FONTCONFIG_CONFIG = """<?xml version="1.0"?>
     <dir>{}</dir>
     <dir>{}</dir>
     <dir>{}</dir>
-    <dir>{}</dir>
     <config>
         <rescan>
             <int>30</int>
         </rescan>
     </config>
+
+    <alias>
+        <family>sans-serif</family>
+        <prefer>
+            <family>Source Sans 3</family>
+            <family>Kurinto Sans</family>
+        </prefer>
+    </alias>
+
+    <alias>
+        <family>Source Sans 3</family>
+        <default><family>sans-serif</family></default>
+    </alias>
+
+    <alias>
+        <family>Kurinto Sans</family>
+        <default><family>sans-serif</family></default>
+    </alias>
 
     <!--
      Synthetic emboldening for fonts that do not have bold face available
@@ -69,7 +72,12 @@ FONTCONFIG_CONFIG = """<?xml version="1.0"?>
             <const>bold</const>
         </edit>
     </match>
-
+    <!--
+      Enable slight hinting for better sub-pixel rendering
+    -->
+    <match target="pattern">
+      <edit name="hintstyle" mode="append"><const>hintslight</const></edit>
+    </match>
 </fontconfig>
 """
 
@@ -98,9 +106,8 @@ def configure_fontconfig():
             FONTCONFIG_CONFIG.format(
                 data_dir("cache", "fonts"),
                 fonts_dir,
-                os.path.join(settings.STATIC_ROOT, "font-source", "TTF"),
-                os.path.join(settings.STATIC_ROOT, "font-dejavu"),
-                os.path.join(settings.STATIC_ROOT, "font-droid"),
+                os.path.join(settings.STATIC_ROOT, "vendor", "font-source", "TTF"),
+                os.path.join(settings.STATIC_ROOT, "vendor", "font-kurinto"),
             )
         )
 
@@ -126,7 +133,7 @@ def render_size(font, weight, size, spacing, text, width=1000, lines=1, cache_ke
 
     # Load and configure font
     fontdesc = Pango.FontDescription.from_string(font)
-    fontdesc.set_size(size * Pango.SCALE)
+    fontdesc.set_absolute_size(size * Pango.SCALE)
     if weight:
         fontdesc.set_weight(weight)
     layout.set_font_description(fontdesc)
@@ -134,7 +141,11 @@ def render_size(font, weight, size, spacing, text, width=1000, lines=1, cache_ke
     # This seems to be only way to set letter spacing
     # See https://stackoverflow.com/q/55533312/225718
     layout.set_markup(
-        '<span letter_spacing="{}">{}</span>'.format(spacing, escape(text))
+        format_html(
+            '<span letter_spacing="{}">{}</span>',
+            spacing,
+            text,
+        )
     )
 
     # Set width and line wrapping
@@ -193,7 +204,7 @@ def check_render_size(font, weight, size, spacing, text, width, lines, cache_key
 def get_font_name(filelike):
     """Returns tuple of font family and style, for example ('Ubuntu', 'Regular')."""
     if not hasattr(filelike, "loaded_font"):
-        # The tempfile creation is workaroud for Pillow crashing on invalid font
+        # The tempfile creation is workaround for Pillow crashing on invalid font
         # see https://github.com/python-pillow/Pillow/issues/3853
         # Once this is fixed, it should be possible to directly operate on filelike
         temp = NamedTemporaryFile(delete=False)
@@ -210,7 +221,7 @@ def get_font_name(filelike):
 def check_fonts(app_configs=None, **kwargs):
     """Checks font rendering."""
     try:
-        render_size("DejaVu Sans", Pango.Weight.NORMAL, 11, 0, "test")
-        return []
+        render_size("Kurinto Sans", Pango.Weight.NORMAL, 11, 0, "test")
     except Exception as error:
-        return [weblate_check("weblate.C024", f"Failed to use Pango: {error}")]
+        return [weblate_check("weblate.C024", f"Could not use Pango: {error}")]
+    return []

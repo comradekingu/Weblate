@@ -1,118 +1,118 @@
+# Copyright © Michal Čihař <michal@weblate.org>
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 name: Distribution
 
 on:
   push:
     branches-ignore:
-      - "dependabot/**"
-      - weblate
+    - deepsource-fix-**
+    - renovate/**
+    - weblate
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   setup:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
 
     env:
       PYTHONUNBUFFERED: 1
       PYTHONWARNINGS: default,ignore:unclosed:ResourceWarning
 
     steps:
-      - uses: actions/checkout@v2
-      - name: Cache pip
-        uses: actions/cache@v2.1.4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-setup-${{ hashFiles('**/requirements*.txt') }}
-      - name: Install apt dependencies
-        run: sudo ./ci/apt-install
-      - name: Set up Python
-        uses: actions/setup-python@v2.2.1
-        with:
-          python-version: 3.9
-      - name: Used versions
-        run: ./ci/print-versions
-      - name: Install pip dependencies
-        run: ./ci/pip-install
-      - name: Install Weblate
-        run: coverage run ./setup.py install
-      - name: Check difference
-        run: diff -ruNqp weblate $(python -c 'import weblate; import os; print(os.path.dirname(weblate.__file__))')
-      - name: Coverage
-        run: |
-          coverage combine
-          coverage xml
-      - uses: codecov/codecov-action@v1
-        with:
-          flags: setup
-          name: setup
+    - uses: actions/checkout@v3
+    - name: Install apt dependencies
+      run: sudo ./ci/apt-install
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: pip
+        cache-dependency-path: '**/requirements*.txt'
+    - name: Used versions
+      run: ./ci/print-versions
+    - name: Install pip dependencies
+      run: ./ci/pip-install
+    - name: Install Weblate
+      run: coverage run ./setup.py install
+    - name: Check difference
+      run: diff -ruNqp weblate $(python -c 'import weblate; import os; print(os.path.dirname(weblate.__file__))')
+    - name: Coverage
+      run: |
+        coverage combine
+        coverage xml
+    - uses: codecov/codecov-action@v3.1.4
+      with:
+        flags: setup
+        name: setup
 
   pip:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
 
     env:
       PYTHONUNBUFFERED: 1
       PYTHONWARNINGS: default,ignore:unclosed:ResourceWarning
 
     steps:
-      - uses: actions/checkout@v2
-      - name: Cache pip
-        uses: actions/cache@v2.1.4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-setup-${{ hashFiles('**/requirements*.txt') }}
-      - name: Install apt dependencies
-        run: sudo ./ci/apt-install
-      - name: Set up Python
-        uses: actions/setup-python@v2.2.1
-        with:
-          python-version: 3.9
-      - name: Used versions
-        run: ./ci/print-versions
-      - name: Install pip dependencies
-        run: ./ci/pip-install
-      - name: Install Weblate
-        run: pip install .
-      - name: Check difference
-        run: diff -ruNqp weblate $(python -c 'import weblate; import os; print(os.path.dirname(weblate.__file__))')
+    - uses: actions/checkout@v3
+    - name: Install apt dependencies
+      run: sudo ./ci/apt-install
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: pip
+        cache-dependency-path: '**/requirements*.txt'
+    - name: Used versions
+      run: ./ci/print-versions
+    - name: Install pip dependencies
+      run: ./ci/pip-install
+    - name: Install Weblate
+      run: pip install '.[all]'
+    - name: Check difference
+      run: diff -ruNqp weblate $(python -c 'import weblate; import os; print(os.path.dirname(weblate.__file__))')
 
   dist:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     env:
       PYTHONUNBUFFERED: 1
       PYTHONWARNINGS: default,ignore:unclosed:ResourceWarning
 
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/cache@v2.1.4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-setup-${{ hashFiles('**/requirements*.txt') }}
-      - name: Install apt dependencies
-        run: sudo ./ci/apt-install
-      - name: Setup Python
-        uses: actions/setup-python@v2.2.1
-        with:
-          python-version: 3.9
-      - name: Install pip dependencies
-        run: ./ci/pip-install
-      - name: Build sdist
-        run: coverage run ./setup.py sdist
-      - name: Install sdist
-        run: |
-          pip install ./dist/*.tar.gz
-          pip uninstall --yes Weblate
-      - name: Build wheel
-        run: coverage run ./setup.py bdist_wheel
-      - name: Install wheel
-        run: |
-          pip install ./dist/*.whl
-          pip uninstall --yes Weblate
-      - name: Twine check
-        run: twine check dist/*
-      - name: Coverage
-        run: |
-          coverage combine
-          coverage xml
-      - uses: codecov/codecov-action@v1
-        with:
-          flags: setup
-          name: dist
+    - uses: actions/checkout@v3
+    - name: Install apt dependencies
+      run: sudo ./ci/apt-install
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: pip
+        cache-dependency-path: '**/requirements*.txt'
+    - name: Install pip dependencies
+      run: ./ci/pip-install
+    - name: Build sdist
+      run: coverage run ./setup.py sdist
+    - name: Install sdist
+      run: |
+        pip install ./dist/*.tar.gz
+        pip uninstall --yes Weblate
+    - name: Build wheel
+      run: coverage run ./setup.py bdist_wheel
+    - name: Install wheel
+      run: |
+        pip install ./dist/*.whl
+        pip uninstall --yes Weblate
+    - name: Twine check
+      run: twine check dist/*
+    - name: Coverage
+      run: |
+        coverage combine
+        coverage xml
+    - uses: codecov/codecov-action@v3.1.4
+      with:
+        flags: setup
+        name: dist

@@ -1,21 +1,6 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 from datetime import timedelta
 
@@ -23,10 +8,11 @@ from celery.schedules import crontab
 from django.conf import settings
 from django.db.models import Count, Q
 from django.utils import timezone
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext
 
 from weblate.accounts.notifications import send_notification_email
 from weblate.billing.models import Billing
+from weblate.trans.tasks import project_removal
 from weblate.utils.celery import app
 
 
@@ -37,7 +23,9 @@ def billing_check():
 
 @app.task(trail=False)
 def billing_alert():
-    for bill in Billing.objects.filter(state=Billing.STATE_ACTIVE):
+    for bill in Billing.objects.filter(
+        state__in=(Billing.STATE_ACTIVE, Billing.STATE_TRIAL)
+    ):
         in_limit = bill.in_display_limits()
         for project in bill.projects.iterator():
             for component in project.component_set.iterator():
@@ -91,12 +79,12 @@ def notify_expired():
         if bill.state == Billing.STATE_ACTIVE and bill.check_payment_status(now=True):
             continue
         if bill.plan.price:
-            note = _(
+            note = gettext(
                 "You will stop receiving this notification once "
                 "you pay the bills or the project is removed."
             )
         else:
-            note = _(
+            note = gettext(
                 "You will stop receiving this notification once "
                 "you change to regular subscription or the project is removed."
             )
@@ -138,8 +126,7 @@ def perform_removal():
             )
         for prj in bill.projects.iterator():
             prj.log_warning("removing due to unpaid billing")
-            prj.stats.invalidate()
-            prj.delete()
+            project_removal(prj.id, None)
         bill.removal = None
         bill.state = Billing.STATE_TERMINATED
         bill.save()
@@ -148,9 +135,11 @@ def perform_removal():
 @app.on_after_finalize.connect
 def setup_periodic_tasks(sender, **kwargs):
     sender.add_periodic_task(3600, billing_check.s(), name="billing-check")
-    sender.add_periodic_task(3600 * 24, billing_alert.s(), name="billing-alert")
     sender.add_periodic_task(
-        crontab(hour=3, minute=0, day_of_week="monday,thursday"),
+        crontab(hour=0, minute=50), billing_alert.s(), name="billing-alert"
+    )
+    sender.add_periodic_task(
+        crontab(hour=3, minute=0, day_of_week="mon,thu"),
         billing_notify.s(),
         name="billing-notify",
     )
@@ -160,12 +149,12 @@ def setup_periodic_tasks(sender, **kwargs):
         name="perform-removal",
     )
     sender.add_periodic_task(
-        crontab(hour=2, minute=0, day_of_week="monday,thursday"),
+        crontab(hour=2, minute=0, day_of_week="mon,thu"),
         schedule_removal.s(),
         name="schedule-removal",
     )
     sender.add_periodic_task(
-        crontab(hour=2, minute=30, day_of_week="monday,thursday"),
+        crontab(hour=2, minute=30, day_of_week="mon,thu"),
         notify_expired.s(),
         name="notify-expired",
     )

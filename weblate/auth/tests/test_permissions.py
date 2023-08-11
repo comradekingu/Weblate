@@ -1,24 +1,13 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+from datetime import timedelta
 
 from django.test.utils import modify_settings, override_settings
+from django.utils import timezone
 
+from weblate.auth.data import SELECTION_ALL_PROTECTED, SELECTION_ALL_PUBLIC
 from weblate.auth.models import Group, Permission, Role, User
 from weblate.trans.models import Comment, Project
 from weblate.trans.tests.test_views import FixtureTestCase
@@ -33,7 +22,7 @@ class PermissionsTest(FixtureTestCase):
         self.superuser = User.objects.create_user(
             "super", "super@example.com", is_superuser=True
         )
-        self.project.add_user(self.admin, "@Administration")
+        self.project.add_user(self.admin, "Administration")
 
     def test_admin_perm(self):
         self.assertTrue(self.superuser.has_perm("upload.authorship", self.project))
@@ -159,3 +148,209 @@ class PermissionsTest(FixtureTestCase):
         )
         self.assertFalse(self.admin.has_perm("billing:project.permissions", project))
         self.assertFalse(self.user.has_perm("billing:project.permissions", project))
+
+    def test_user_block(self):
+        self.assertTrue(self.user.has_perm("unit.edit", self.component))
+
+        # Block user
+        self.user.clear_cache()
+        self.user.userblock_set.create(project=self.project)
+        self.assertFalse(self.user.has_perm("unit.edit", self.component))
+        self.user.userblock_set.all().delete()
+
+        # Block user with past expiry
+        self.user.clear_cache()
+        self.user.userblock_set.create(
+            project=self.project, expiry=timezone.now() - timedelta(days=1)
+        )
+        self.assertTrue(self.user.has_perm("unit.edit", self.component))
+        self.user.userblock_set.all().delete()
+
+        # Block user with future expiry
+        self.user.clear_cache()
+        self.user.userblock_set.create(
+            project=self.project, expiry=timezone.now() + timedelta(days=1)
+        )
+        self.assertFalse(self.user.has_perm("unit.edit", self.component))
+        self.user.userblock_set.all().delete()
+
+    def test_projects_with_perm(self):
+        group = Group.objects.get(name="Managers")
+
+        # No membership
+        self.assertEqual(
+            list(
+                self.user.projects_with_perm("project.edit").values_list(
+                    "slug", flat=True
+                )
+            ),
+            [],
+        )
+        self.assertEqual(
+            list(
+                self.user.projects_with_perm("project.edit", explicit=True).values_list(
+                    "slug", flat=True
+                )
+            ),
+            [],
+        )
+
+        # Admin group
+        self.project.add_user(self.user)
+        self.assertEqual(
+            list(
+                self.user.projects_with_perm("project.edit").values_list(
+                    "slug", flat=True
+                )
+            ),
+            [self.project.slug],
+        )
+        self.assertEqual(
+            list(
+                self.user.projects_with_perm("project.edit", explicit=True).values_list(
+                    "slug", flat=True
+                )
+            ),
+            [self.project.slug],
+        )
+
+        # Superuser and admin group
+        self.user.is_superuser = True
+        self.user.save()
+        self.assertEqual(
+            list(
+                self.user.projects_with_perm("project.edit").values_list(
+                    "slug", flat=True
+                )
+            ),
+            [self.project.slug],
+        )
+        self.assertEqual(
+            list(
+                self.user.projects_with_perm("project.edit", explicit=True).values_list(
+                    "slug", flat=True
+                )
+            ),
+            [self.project.slug],
+        )
+
+        # Superuser only
+        self.project.remove_user(self.user)
+        self.assertEqual(
+            list(
+                self.user.projects_with_perm("project.edit").values_list(
+                    "slug", flat=True
+                )
+            ),
+            [self.project.slug],
+        )
+        self.assertEqual(
+            list(
+                self.user.projects_with_perm("project.edit", explicit=True).values_list(
+                    "slug", flat=True
+                )
+            ),
+            [],
+        )
+
+        # Superuser in sitewide group
+        group.user_set.add(self.user)
+        self.assertEqual(
+            list(
+                self.user.projects_with_perm("project.edit").values_list(
+                    "slug", flat=True
+                )
+            ),
+            [self.project.slug],
+        )
+        self.assertEqual(
+            list(
+                self.user.projects_with_perm("project.edit", explicit=True).values_list(
+                    "slug", flat=True
+                )
+            ),
+            [],
+        )
+
+        # User in sitewide group
+        self.user.is_superuser = False
+        self.user.save()
+        self.assertEqual(
+            list(
+                self.user.projects_with_perm("project.edit").values_list(
+                    "slug", flat=True
+                )
+            ),
+            [self.project.slug],
+        )
+        self.assertEqual(
+            list(
+                self.user.projects_with_perm("project.edit", explicit=True).values_list(
+                    "slug", flat=True
+                )
+            ),
+            [],
+        )
+
+        # Public projects with membership
+        group.project_selection = SELECTION_ALL_PUBLIC
+        group.save()
+        self.user.clear_cache()
+        self.assertEqual(
+            list(
+                self.user.projects_with_perm("project.edit").values_list(
+                    "slug", flat=True
+                )
+            ),
+            [self.project.slug],
+        )
+        self.assertEqual(
+            list(
+                self.user.projects_with_perm("project.edit", explicit=True).values_list(
+                    "slug", flat=True
+                )
+            ),
+            [],
+        )
+
+        # Protected projects without membership
+        self.project.access_control = Project.ACCESS_PROTECTED
+        self.project.save()
+        self.user.clear_cache()
+        self.assertEqual(
+            list(
+                self.user.projects_with_perm("project.edit").values_list(
+                    "slug", flat=True
+                )
+            ),
+            [],
+        )
+        self.assertEqual(
+            list(
+                self.user.projects_with_perm("project.edit", explicit=True).values_list(
+                    "slug", flat=True
+                )
+            ),
+            [],
+        )
+
+        # Protected projects with membership
+        group.project_selection = SELECTION_ALL_PROTECTED
+        group.save()
+        self.user.clear_cache()
+        self.assertEqual(
+            list(
+                self.user.projects_with_perm("project.edit").values_list(
+                    "slug", flat=True
+                )
+            ),
+            [self.project.slug],
+        )
+        self.assertEqual(
+            list(
+                self.user.projects_with_perm("project.edit", explicit=True).values_list(
+                    "slug", flat=True
+                )
+            ),
+            [],
+        )

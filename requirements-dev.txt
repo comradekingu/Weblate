@@ -2,6 +2,8 @@
 -r requirements-lint.txt
 -r requirements-optional.txt
 -r requirements-test.txt
-django-debug-toolbar
-PyICU
-scour
+-r requirements-ci.txt
+django-debug-toolbar==4.2.0
+PyICU==2.11
+reuse==2.1.0
+scour==0.38.2

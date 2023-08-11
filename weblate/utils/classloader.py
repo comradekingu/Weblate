@@ -1,21 +1,6 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 from importlib import import_module
 
@@ -30,42 +15,54 @@ def load_class(name, setting):
         module, attr = name.rsplit(".", 1)
     except ValueError as error:
         raise ImproperlyConfigured(
-            f'Error importing class {name} in {setting}: "{error}"'
-        )
+            f"Error importing class {name!r} in {setting}: {error}"
+        ) from error
     try:
         mod = import_module(module)
     except ImportError as error:
         raise ImproperlyConfigured(
-            f'Error importing module {module} in {setting}: "{error}"'
-        )
+            f"Error importing module {module!r} in {setting}: {error}"
+        ) from error
     try:
         return getattr(mod, attr)
-    except AttributeError:
+    except AttributeError as error:
         raise ImproperlyConfigured(
-            f'Module "{module}" does not define a "{attr}" class in {setting}'
-        )
+            f"Module {module!r} does not define a {attr!r} class in {setting}"
+        ) from error
 
 
 class ClassLoader:
     """Dict like object to lazy load list of classes."""
 
-    def __init__(self, name, construct=True):
+    def __init__(self, name: str, construct: bool = True, collect_errors: bool = False):
         self.name = name
         self.construct = construct
+        self.collect_errors = collect_errors
+        self.errors = {}
+
+    def get_settings(self):
+        result = getattr(settings, self.name)
+        if result is None:
+            # Special case to disable all checks/...
+            result = []
+        elif not isinstance(result, (list, tuple)):
+            raise ImproperlyConfigured(f"Setting {self.name} must be list or tuple!")
+        return result
 
     def load_data(self):
         result = {}
-        value = getattr(settings, self.name)
-        if value:
-            if not isinstance(value, (list, tuple)):
-                raise ImproperlyConfigured(
-                    f"Setting {self.name} must be list or tuple!"
-                )
-            for path in value:
+        value = self.get_settings()
+        for path in value:
+            try:
                 obj = load_class(path, self.name)
-                if self.construct:
-                    obj = obj()
-                result[obj.get_identifier()] = obj
+            except ImproperlyConfigured as error:
+                self.errors[path] = error
+                if self.collect_errors:
+                    continue
+                raise
+            if self.construct:
+                obj = obj()
+            result[obj.get_identifier()] = obj
         return result
 
     @cached_property
@@ -102,7 +99,12 @@ class ClassLoader:
     def exists(self):
         return bool(self.data)
 
-    def get_choices(self, empty=False, exclude=(), cond=lambda x: True):
+    def get_choices(self, empty=False, exclude=(), cond=None):
+        if cond is None:
+
+            def cond(x):
+                return True  # noqa: ARG005
+
         result = [
             (x, self[x].name)
             for x in sorted(self)

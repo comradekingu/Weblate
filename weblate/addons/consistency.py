@@ -1,24 +1,9 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
-
-from django.utils.translation import gettext_lazy as _
+from django.db.models import Q
+from django.utils.translation import gettext_lazy
 
 from weblate.addons.base import BaseAddon
 from weblate.addons.events import EVENT_DAILY, EVENT_POST_ADD
@@ -29,11 +14,10 @@ from weblate.lang.models import Language
 class LangaugeConsistencyAddon(BaseAddon):
     events = (EVENT_DAILY, EVENT_POST_ADD)
     name = "weblate.consistency.languages"
-    verbose = _("Language consistency")
-    description = _(
-        "Ensures all components within a project have translations for every added "
-        "translated language by creating empty translations in languages that "
-        "have unadded components."
+    verbose = gettext_lazy("Add missing languages")
+    description = gettext_lazy(
+        "Ensures a consistent set of languages is used for all components "
+        "within a project."
     )
     icon = "language.svg"
     project_scope = True
@@ -42,9 +26,9 @@ class LangaugeConsistencyAddon(BaseAddon):
         language_consistency.delay(
             component.project_id,
             list(
-                Language.objects.filter(translation__component=component).values_list(
-                    "pk", flat=True
-                )
+                Language.objects.filter(
+                    Q(translation__component=component) | Q(component=component)
+                ).values_list("pk", flat=True)
             ),
         )
 

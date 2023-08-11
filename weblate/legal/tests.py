@@ -1,21 +1,6 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Test for legal stuff."""
 
@@ -24,7 +9,10 @@ from django.test import TestCase
 from django.test.utils import modify_settings, override_settings
 from django.urls import reverse
 
-from weblate.accounts.tests.test_registration import REGISTRATION_DATA
+from weblate.accounts.tests.test_registration import (
+    REGISTRATION_DATA,
+    REGISTRATION_SUCCESS,
+)
 from weblate.trans.tests.test_views import RegistrationTestMixin
 from weblate.trans.tests.utils import create_test_user
 
@@ -42,10 +30,6 @@ class LegalTest(TestCase, RegistrationTestMixin):
         response = self.client.get(reverse("legal:cookies"))
         self.assertContains(response, "Cookies Policy")
 
-    def test_security(self):
-        response = self.client.get(reverse("legal:security"))
-        self.assertContains(response, "Security Policy")
-
     def test_contracts(self):
         response = self.client.get(reverse("legal:contracts"))
         self.assertContains(response, "Subcontractors")
@@ -58,7 +42,7 @@ class LegalTest(TestCase, RegistrationTestMixin):
         """TOS confirmation on social auth."""
         response = self.client.post(reverse("register"), REGISTRATION_DATA, follow=True)
         # Check we did succeed
-        self.assertContains(response, "Thank you for registering.")
+        self.assertContains(response, REGISTRATION_SUCCESS)
 
         # Follow link
         url = self.assert_registration_mailbox()
@@ -90,14 +74,14 @@ class LegalTest(TestCase, RegistrationTestMixin):
         self.assertContains(response, "Browse all 0 projects")
         # Login
         self.client.login(username="testuser", password="testpassword")
-        # Chck that homepage redirects
+        # Check that homepage redirects
         response = self.client.get(reverse("home"), follow=True)
         self.assertTrue(
             response.redirect_chain[-1][0].startswith(reverse("legal:confirm"))
         )
         # Check that contact works even without TOS
         response = self.client.get(reverse("contact"), follow=True)
-        self.assertContains(response, "You can only contact maintainers")
+        self.assertContains(response, "You can only contact administrators")
         # Confirm current TOS
         request = HttpRequest()
         request.META["REMOTE_ADDR"] = "127.0.0.1"

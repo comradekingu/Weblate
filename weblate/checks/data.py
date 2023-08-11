@@ -1,23 +1,8 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
-# We ignore some words which are usually not translated
+# We ignore some words which are usually untranslated
 IGNORE_WORDS = {
     "abc",
     "accelerator",
@@ -82,6 +67,7 @@ IGNORE_WORDS = {
     "bar",
     "baseball",
     "battery",
+    "bazaar",
     "begin",
     "beta",
     "bios",
@@ -157,6 +143,7 @@ IGNORE_WORDS = {
     "cvs",
     "cyrillic",
     "dashboard",
+    "danda",
     "data",
     "database",
     "databases",
@@ -179,6 +166,7 @@ IGNORE_WORDS = {
     "destination",
     "detail",
     "details",
+    "devanagari",
     "developer",
     "devscripts",
     "dialog",
@@ -221,6 +209,7 @@ IGNORE_WORDS = {
     "enterprise",
     "enum",
     "error",
+    "esc",
     "escape",
     "eta",
     "ethereum",
@@ -294,6 +283,7 @@ IGNORE_WORDS = {
     "ghz",
     "gib",
     "git",
+    "gitea",
     "github",
     "gitlab",
     "gpl",
@@ -318,6 +308,7 @@ IGNORE_WORDS = {
     "hdmi",
     "headset",
     "help",
+    "hex",
     "histogram",
     "hmpf",
     "home",
@@ -345,6 +336,7 @@ IGNORE_WORDS = {
     "icmp",
     "icon",
     "icons",
+    "icu",
     "ids",
     "idea",
     "ieee",
@@ -373,6 +365,7 @@ IGNORE_WORDS = {
     "ins",
     "insert",
     "insights",
+    "instagram",
     "install",
     "installation",
     "int",
@@ -386,6 +379,7 @@ IGNORE_WORDS = {
     "introduction",
     "ion",
     "ios",
+    "ipsum",
     "iptables",
     "ipv",
     "irix",
@@ -400,6 +394,7 @@ IGNORE_WORDS = {
     "jabber",
     "jami",
     "java",
+    "javascript",
     "jdbc",
     "join",
     "joins",
@@ -429,6 +424,7 @@ IGNORE_WORDS = {
     "legal",
     "level",
     "libgammu",
+    "liberapay",
     "libre",
     "lime",
     "linestring",
@@ -448,6 +444,7 @@ IGNORE_WORDS = {
     "logos",
     "longitude",
     "lord",
+    "lorem",
     "ltr",
     "lua",
     "lzma",
@@ -473,6 +470,7 @@ IGNORE_WORDS = {
     "mapillary",
     "markdown",
     "master",
+    "material",
     "matrix",
     "max",
     "maximum",
@@ -481,9 +479,11 @@ IGNORE_WORDS = {
     "medium",
     "menu",
     "merchandise",
+    "mercurial",
     "merge",
     "mesh",
     "message",
+    "messageformat",
     "messages",
     "meta",
     "metadata",
@@ -503,6 +503,7 @@ IGNORE_WORDS = {
     "minus",
     "minute",
     "minutes",
+    "mm²",
     "mode",
     "model",
     "module",
@@ -547,6 +548,7 @@ IGNORE_WORDS = {
     "obex",
     "office",
     "offline",
+    "offset",
     "ogg",
     "online",
     "ons",
@@ -584,6 +586,7 @@ IGNORE_WORDS = {
     "parser",
     "party",
     "password",
+    "patreon",
     "pause",
     "paypal",
     "pdf",
@@ -627,6 +630,7 @@ IGNORE_WORDS = {
     "post",
     "postgresql",
     "posts",
+    "postscript",
     "ppp",
     "pppoe",
     "pre",
@@ -754,6 +758,7 @@ IGNORE_WORDS = {
     "software",
     "solaris",
     "source",
+    "spam",
     "spatial",
     "spline",
     "spoiler",
@@ -766,6 +771,7 @@ IGNORE_WORDS = {
     "squid",
     "ssh",
     "ssl",
+    "sso",
     "stack",
     "standard",
     "start",
@@ -780,6 +786,7 @@ IGNORE_WORDS = {
     "strings",
     "structure",
     "studio",
+    "stun",
     "style",
     "submit",
     "subquery",
@@ -815,6 +822,7 @@ IGNORE_WORDS = {
     "teams",
     "technologies",
     "technology",
+    "telegram",
     "telnet",
     "template",
     "tent",
@@ -894,6 +902,7 @@ IGNORE_WORDS = {
     "vue",
     "wammu",
     "web",
+    "webdav",
     "webextension",
     "webgl",
     "weblate",
@@ -1022,11 +1031,7 @@ NON_WORD_CHARS = (
     "'",
     "(",
     "*",
-    ",",
-    ".",
     "/",
-    ":",
-    ";",
     "?",
     "@",
     "[",

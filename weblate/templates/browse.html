@@ -15,14 +15,14 @@
 {% endblock %}
 
 {% block breadcrumbs %}
-<li><a href="{{ project.get_absolute_url }}">{{ object.component.project }}</a></li>
+<li><a href="{{ project.get_absolute_url }}">{{ project }}</a></li>
 {% if object.component.slug != "-" %}
 {% include "snippets/component-breadcrumb.html" with object=object.component %}
 {% endif %}
 {% include "snippets/translation-breadcrumb.html" %}
-<li><a href="{% url 'browse' project=project.slug component=object.component.slug lang=object.language.code %}">{% trans "Browse" %}</a></li>
+<li><a href="{% url 'browse' path=object.get_url_path  %}">{% trans "Browse" %}</a></li>
 <a class="pull-right flip" href="{{ object.get_widgets_url }}">
-<img src="{% url 'widget-image' project=project.slug component=object.component.slug widget='svg' color='badge' lang=object.language.code extension='svg' %}?native=1" />
+<img src="{% url 'widget-image' path=object.get_url_path widget='svg' color='badge' extension='svg' %}?native=1" />
 </a>
 {% endblock %}
 
@@ -48,7 +48,7 @@
 {% if not units %}
   <em>{% trans "No strings found!" %}</em>
 {% else %}
-  {% include "snippets/embed-units.html" with translation=object include_search=True %}
+  {% include "snippets/embed-units.html" with translation=object include_search=True component=object.component %}
 {% endif %}
 
 {% endblock %}

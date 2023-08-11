@@ -1,3 +1,7 @@
+// Copyright © Michal Čihař <michal@weblate.org>
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 (function () {
   var EditorBase = WLT.Editor.Base;
 
@@ -31,7 +35,7 @@
 
             this.init();
             initHighlight(document);
-          }
+          },
         );
       }
     });
@@ -49,7 +53,7 @@
           {
             scrollTop: rowOffset,
           },
-          100
+          100,
         );
       }
     });
@@ -98,7 +102,7 @@
     $window.on("beforeunload", function () {
       if ($(".translation-modified").length > 0) {
         return gettext(
-          "There are some unsaved changes, are you sure you want to leave?"
+          "There are some unsaved changes, are you sure you want to leave?",
         );
       }
     });
@@ -124,7 +128,7 @@
       $editors.css(
         "min-height",
         (tdHeight - (contentHeight - editorHeight - 10)) / $editors.length +
-          "px"
+          "px",
       );
     });
   };
@@ -136,8 +140,10 @@
     var $row = $this.closest("tr");
     var checksum = $row.find("[name=checksum]").val();
 
+    var statusdiv = $("#status-" + checksum);
+
     /* Wait until previous operation on this field is completed */
-    if ($("#loading-" + checksum).is(":visible")) {
+    if (statusdiv.hasClass("unit-state-saving")) {
       setTimeout(function () {
         $this.trigger("change");
       }, 100);
@@ -147,25 +153,23 @@
     $row.addClass("translation-modified");
 
     var form = $row.find("form");
-    var statusdiv = $("#status-" + checksum).hide();
-    var loadingdiv = $("#loading-" + checksum).show();
+    statusdiv.addClass("unit-state-saving");
+    var payload = form.serialize();
+    if (payload == statusdiv.data("last-payload")) {
+      return;
+    }
+    statusdiv.data("last-payload", payload);
     $.ajax({
       type: "POST",
       url: form.attr("action"),
-      data: form.serialize(),
+      data: payload,
       dataType: "json",
       error: function (jqXHR, textStatus, errorThrown) {
         addAlert(errorThrown);
       },
       success: function (data) {
-        loadingdiv.hide();
-        statusdiv.show();
-        if (data.unit_flags.length > 0) {
-          $(statusdiv.children()[0]).attr(
-            "class",
-            "state-icon " + data.unit_flags.join(" ")
-          );
-        }
+        statusdiv.attr("class", "unit-state-cell " + data.unit_state_class);
+        statusdiv.attr("title", data.unit_state_title);
         $.each(data.messages, function (i, val) {
           addAlert(val.text, val.kind);
         });

@@ -1,21 +1,6 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Test for settings management."""
 
@@ -29,16 +14,16 @@ from weblate.trans.tests.utils import create_test_billing
 
 class SettingsTest(ViewTestCase):
     def test_project_denied(self):
-        url = reverse("settings", kwargs=self.kw_project)
+        url = reverse("settings", kwargs={"path": self.project.get_url_path()})
         response = self.client.get(url)
         self.assertEqual(response.status_code, 404)
         response = self.client.post(url)
         self.assertEqual(response.status_code, 404)
 
     def test_project(self):
-        self.project.add_user(self.user, "@Administration")
+        self.project.add_user(self.user, "Administration")
         self.project.component_set.update(license="MIT")
-        url = reverse("settings", kwargs=self.kw_project)
+        url = reverse("settings", kwargs={"path": self.project.get_url_path()})
         response = self.client.get(url)
         self.assertContains(response, "Settings")
         data = response.context["form"].initial
@@ -51,8 +36,8 @@ class SettingsTest(ViewTestCase):
 
     @modify_settings(INSTALLED_APPS={"append": "weblate.billing"})
     def test_change_access(self):
-        self.project.add_user(self.user, "@Administration")
-        url = reverse("settings", kwargs=self.kw_project)
+        self.project.add_user(self.user, "Administration")
+        url = reverse("settings", kwargs={"path": self.project.get_url_path()})
 
         # Get initial form data
         response = self.client.get(url)
@@ -95,7 +80,7 @@ class SettingsTest(ViewTestCase):
         self.assertEqual(response.status_code, 404)
 
     def test_component(self):
-        self.project.add_user(self.user, "@Administration")
+        self.project.add_user(self.user, "Administration")
         url = reverse("settings", kwargs=self.kw_component)
         response = self.client.get(url)
         self.assertContains(response, "Settings")
@@ -110,7 +95,7 @@ class SettingsTest(ViewTestCase):
         self.assertEqual(component.enforced_checks, ["same", "duplicate"])
 
     def test_shared_component(self):
-        self.project.add_user(self.user, "@Administration")
+        self.project.add_user(self.user, "Administration")
         url = reverse("settings", kwargs=self.kw_component)
 
         # Create extra project
@@ -130,7 +115,7 @@ class SettingsTest(ViewTestCase):
         self.assertNotContains(response, self.component.get_absolute_url())
 
         # Add link to owned project
-        other.add_user(self.user, "@Administration")
+        other.add_user(self.user, "Administration")
         response = self.client.post(url, data, follow=True)
         self.assertContains(response, "Settings saved")
         response = self.client.get(other.get_absolute_url())
