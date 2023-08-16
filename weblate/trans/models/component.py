@@ -692,7 +692,7 @@ class Component(models.Model, PathMixin, CacheKeyMixin):
 
     # Glossary management
     is_glossary = models.BooleanField(
-        verbose_name=gettext_lazy("Use as a glossary"),
+        verbose_name=gettext_lazy("Use as glossary for other components"),
         default=False,
         db_index=True,
     )
