@@ -1,27 +1,13 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 import os
 import shutil
 
 from django.conf import settings
 from django.test import TestCase
+from django.test.utils import override_settings
 
 from weblate.trans.tests.utils import get_test_file
 from weblate.utils.checks import check_data_writable
@@ -49,9 +35,24 @@ class SSHTest(TestCase):
         wrapper.create()
         with open(filename) as handle:
             data = handle.read()
-            self.assertTrue(ssh_file("known_hosts") in data)
-            self.assertTrue(ssh_file("id_rsa") in data)
-            self.assertTrue(settings.DATA_DIR in data)
+            self.assertIn(ssh_file("known_hosts"), data)
+            self.assertIn(ssh_file("id_rsa"), data)
+            self.assertIn(settings.DATA_DIR, data)
+        self.assertTrue(os.access(filename, os.X_OK))
+        # Second run should not touch the file
+        timestamp = os.stat(filename).st_mtime
+        wrapper.create()
+        self.assertEqual(timestamp, os.stat(filename).st_mtime)
+
+    @tempdir_setting("DATA_DIR")
+    @override_settings(SSH_EXTRA_ARGS="-oKexAlgorithms=+diffie-hellman-group1-sha1")
+    def test_ssh_args(self):
+        wrapper = SSHWrapper()
+        filename = wrapper.filename
+        wrapper.create()
+        with open(filename) as handle:
+            data = handle.read()
+            self.assertIn(settings.SSH_EXTRA_ARGS, data)
         self.assertTrue(os.access(filename, os.X_OK))
         # Second run should not touch the file
         timestamp = os.stat(filename).st_mtime

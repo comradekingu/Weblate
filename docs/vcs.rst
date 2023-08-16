@@ -4,8 +4,9 @@ Version control integration
 ===========================
 
 Weblate currently supports :ref:`vcs-git` (with extended support for
-:ref:`vcs-github`, :ref:`vcs-gerrit` and :ref:`vcs-git-svn`) and
-:ref:`vcs-mercurial` as version control back-ends.
+:ref:`vcs-github`, :ref:`vcs-gitlab`, :ref:`vcs-gitea`, :ref:`vcs-gerrit`,
+:ref:`vcs-git-svn` and :ref:`vcs-bitbucket-server`) and :ref:`vcs-mercurial` as
+version control back-ends.
 
 .. _vcs-repos:
 
@@ -57,13 +58,17 @@ connect to the host should it be changed later (see :ref:`verify-ssh`).
 
 In case adjustment is needed, do so from the Weblate admin interface:
 
-.. image:: images/ssh-keys.png
+.. image:: /screenshots/ssh-keys.webp
 
 
 .. _weblate-ssh-key:
 
 Weblate SSH key
 ~~~~~~~~~~~~~~~
+
+.. versionchanged:: 4.17
+
+   Weblate now generates both RSA and Ed25519 SSH keys. Using Ed25519 is recommended for new setups.
 
 The Weblate public key is visible to all users browsing the :guilabel:`About` page.
 
@@ -95,7 +100,7 @@ the hostname you are going to access (e.g. ``gitlab.com``), and press
 
 The added keys with fingerprints are shown in the confirmation message:
 
-.. image:: images/ssh-keys-added.png
+.. image:: /screenshots/ssh-keys-added.webp
 
 .. _vcs-repos-github:
 
@@ -113,7 +118,7 @@ upstream repository and chosen branch.
 For smaller deployments, use HTTPS authentication with a personal access
 token and your GitHub account, see `Creating an access token for command-line use`_.
 
-.. _Creating an access token for command-line use: https://docs.github.com/en/github/authenticating-to-github/creating-a-personal-access-token
+.. _Creating an access token for command-line use: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token
 
 For bigger setups, it is usually better to create a dedicated user for Weblate,
 assign it the public SSH key generated in Weblate (see :ref:`weblate-ssh-key`)
@@ -147,7 +152,7 @@ Reasons to use this:
 * Saves disk space on the server, the repository is stored just once.
 * Makes the updates faster, only one repository is updated.
 * There is just single exported repository with Weblate translations (see :ref:`git-exporter`).
-* Some addons can operate on multiple components sharing one repository, for example :ref:`addon-weblate.git.squash`.
+* Some add-ons can operate on multiple components sharing one repository, for example :ref:`addon-weblate.git.squash`.
 
 
 HTTPS repositories
@@ -197,9 +202,15 @@ or by enforcing it in the VCS configuration, for example:
 Git
 ---
 
+.. hint::
+
+   Weblate needs Git 2.12 or newer.
+
 .. seealso::
 
     See :ref:`vcs-repos` for info on how to access different kinds of repositories.
+
+.. _vcs-git-force-push:
 
 Git with force push
 +++++++++++++++++++
@@ -255,11 +266,10 @@ For the ``hello`` repository from selenic.com using Mercurial::
     the remote helper sometimes creates a new tip when pushing changes back.
 
 .. _vcs-github:
+.. _github-push:
 
-GitHub
-------
-
-.. versionadded:: 2.3
+GitHub pull requests
+--------------------
 
 This adds a thin layer atop :ref:`vcs-git` using the `GitHub API`_ to allow pushing
 translation changes as pull requests, instead of pushing directly to the repository.
@@ -268,35 +278,22 @@ translation changes as pull requests, instead of pushing directly to the reposit
 :ref:`vcs-github` creates pull requests.
 The latter is not needed for merely accessing Git repositories.
 
-.. seealso::
-
-   :ref:`push-changes`
-
-
-.. _github-push:
-
-Pushing changes to GitHub as pull requests
-++++++++++++++++++++++++++++++++++++++++++
-
-If not wanting to push translations to a GitHub repository, they can be sent as
-either one or many pull requests instead.
-
-You need to configure API credentials to make this work.
+You need to configure API credentials (:setting:`GITHUB_CREDENTIALS`) in the
+Weblate settings to make this work. Once configured, you will see a
+:guilabel:`GitHub` option when selecting :ref:`component-vcs`.
 
 .. seealso::
 
-   :setting:`GITHUB_USERNAME`,
-   :setting:`GITHUB_TOKEN`,
+   :ref:`push-changes`,
    :setting:`GITHUB_CREDENTIALS`
 
 .. _GitHub API: https://docs.github.com/en/rest
 
 .. _vcs-gitlab:
+.. _gitlab-push:
 
-GitLab
-------
-
-.. versionadded:: 3.9
+GitLab merge requests
+---------------------
 
 This just adds a thin layer atop :ref:`vcs-git` using the `GitLab API`_ to allow
 pushing translation changes as merge requests instead of
@@ -307,32 +304,83 @@ works the same, the only difference is how pushing to a repository is
 handled. With :ref:`vcs-git` changes are pushed directly to the repository,
 while :ref:`vcs-gitlab` creates merge request.
 
-.. seealso::
-
-   :ref:`push-changes`
-
-.. _gitlab-push:
-
-Pushing changes to GitLab as merge requests
-+++++++++++++++++++++++++++++++++++++++++++
-
-If not wanting to push translations to a GitLab repository, they can be sent as either
-one or many merge requests instead.
-
-You need to configure API credentials to make this work.
+You need to configure API credentials (:setting:`GITLAB_CREDENTIALS`) in the
+Weblate settings to make this work. Once configured, you will see a
+:guilabel:`GitLab` option when selecting :ref:`component-vcs`.
 
 .. seealso::
 
-   :setting:`GITLAB_USERNAME`,
-   :setting:`GITLAB_TOKEN`,
+   :ref:`push-changes`,
    :setting:`GITLAB_CREDENTIALS`
 
 .. _GitLab API: https://docs.gitlab.com/ee/api/
 
-.. _vcs-pagure:
+.. _vcs-gitea:
+.. _gitea-push:
 
-Pagure
-------
+Gitea pull requests
+-------------------
+
+.. versionadded:: 4.12
+
+This just adds a thin layer atop :ref:`vcs-git` using the `Gitea API`_ to allow
+pushing translation changes as pull requests instead of
+pushing directly to the repository.
+
+There is no need to use this to access Git repositories, ordinary :ref:`vcs-git`
+works the same, the only difference is how pushing to a repository is
+handled. With :ref:`vcs-git` changes are pushed directly to the repository,
+while :ref:`vcs-gitea` creates pull requests.
+
+You need to configure API credentials (:setting:`GITEA_CREDENTIALS`) in the
+Weblate settings to make this work. Once configured, you will see a
+:guilabel:`Gitea` option when selecting :ref:`component-vcs`.
+
+.. seealso::
+
+   :ref:`push-changes`,
+   :setting:`GITEA_CREDENTIALS`
+
+.. _Gitea API: https://docs.gitea.io/en-us/api-usage/
+
+.. _vcs-bitbucket-server:
+.. _bitbucket-server-push:
+
+Bitbucket Server pull requests
+------------------------------
+
+.. versionadded:: 4.16
+
+This just adds a thin layer atop :ref:`vcs-git` using the
+`Bitbucket Server API`_ to allow pushing translation changes as pull requests
+instead of pushing directly to the repository.
+
+.. warning::
+
+    This does not support Bitbucket Cloud API.
+
+
+There is no need to use this to access Git repositories, ordinary :ref:`vcs-git`
+works the same, the only difference is how pushing to a repository is
+handled. With :ref:`vcs-git` changes are pushed directly to the repository,
+while :ref:`vcs-bitbucket-server` creates pull request.
+
+You need to configure API credentials (:setting:`BITBUCKETSERVER_CREDENTIALS`) in the
+Weblate settings to make this work. Once configured, you will see a
+:guilabel:`Bitbucket Server` option when selecting :ref:`component-vcs`.
+
+.. seealso::
+
+   :ref:`push-changes`,
+   :setting:`BITBUCKETSERVER_CREDENTIALS`
+
+.. _Bitbucket Server API: https://developer.atlassian.com/server/bitbucket/
+
+.. _vcs-pagure:
+.. _pagure-push:
+
+Pagure merge requests
+---------------------
 
 .. versionadded:: 4.3.2
 
@@ -345,24 +393,13 @@ works the same, the only difference is how pushing to a repository is
 handled. With :ref:`vcs-git` changes are pushed directly to the repository,
 while :ref:`vcs-pagure` creates merge request.
 
-.. seealso::
-
-   :ref:`push-changes`
-
-.. _pagure-push:
-
-Pushing changes to Pagure as merge requests
-+++++++++++++++++++++++++++++++++++++++++++
-
-If not wanting to push translations to a Pagure repository, they can be sent as either
-one or many merge requests instead.
-
-You need to configure API credentials to make this work.
+You need to configure API credentials (:setting:`PAGURE_CREDENTIALS`) in the
+Weblate settings to make this work. Once configured, you will see a
+:guilabel:`Pagure` option when selecting :ref:`component-vcs`.
 
 .. seealso::
 
-   :setting:`PAGURE_USERNAME`,
-   :setting:`PAGURE_TOKEN`,
+   :ref:`push-changes`,
    :setting:`PAGURE_CREDENTIALS`
 
 .. _Pagure API: https://pagure.io/api/0/
@@ -371,8 +408,6 @@ You need to configure API credentials to make this work.
 
 Gerrit
 ------
-
-.. versionadded:: 2.2
 
 Adds a thin layer atop :ref:`vcs-git` using the `git-review`_ tool to allow
 pushing translation changes as Gerrit review requests, instead of
@@ -387,8 +422,6 @@ such repositories.
 
 Mercurial
 ---------
-
-.. versionadded:: 2.1
 
 Mercurial is another VCS you can use directly in Weblate.
 
@@ -408,8 +441,6 @@ Mercurial is another VCS you can use directly in Weblate.
 Subversion
 ----------
 
-.. versionadded:: 2.8
-
 Weblate uses `git-svn`_ to interact with `subversion`_ repositories. It is
 a Perl script that lets subversion be used by a Git client, enabling
 users to maintain a full clone of the internal repository and commit locally.
@@ -422,10 +453,6 @@ users to maintain a full clone of the internal repository and commit locally.
     `git-svn documentation <https://git-scm.com/docs/git-svn#Documentation/git-svn.txt---stdlayout>`_.
     If your repository does not have a standard layout and you encounter errors,
     try including the branch name in the repository URL and leaving branch empty.
-
-.. versionchanged:: 2.19
-
-    Before this, only repositories using the standard layout were supported.
 
 .. _git-svn: https://git-scm.com/docs/git-svn
 
@@ -454,7 +481,10 @@ environment variable set to the :setting:`DATA_DIR`:
 Local files
 -----------
 
-.. versionadded:: 3.8
+.. hint::
+
+   Underneath, this uses :ref:`vcs-git`. It requires Git installed and allows
+   you to switch to using Git natively with full history of your translations.
 
 Weblate can also operate without a remote VCS. The initial translations are
 imported by uploading them. Later you can replace individual files by file upload,

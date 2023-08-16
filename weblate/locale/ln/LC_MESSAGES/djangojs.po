@@ -1,14 +1,12 @@
-# SOME DESCRIPTIVE TITLE.
-# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
-# This file is distributed under the same license as the PACKAGE package.
-# Jean-Maurice Omankoy <jean_mau@hotmail.com>, 2019.
-# Anonymous <noreply@weblate.org>, 2020.
-# Michal Čihař <michal@cihar.com>, 2020.
+# Copyright © Michal Čihař <michal@weblate.org>
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 msgid ""
 msgstr ""
-"Project-Id-Version: Weblate 4.5.2\n"
+"Project-Id-Version: Weblate 5.0\n"
 "Report-Msgid-Bugs-To: https://github.com/WeblateOrg/weblate/issues\n"
-"POT-Creation-Date: 2021-03-21 12:39+0000\n"
+"POT-Creation-Date: 2023-08-10 10:41+0000\n"
 "PO-Revision-Date: 2020-09-02 14:14+0000\n"
 "Last-Translator: Michal Čihař <michal@cihar.com>\n"
 "Language-Team: Lingala <https://hosted.weblate.org/projects/weblate/"
@@ -20,351 +18,158 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=n > 1;\n"
 "X-Generator: Weblate 4.3-dev\n"
 
-#: weblate/static/editor/base.js:148
+#: weblate/static/editor/base.js:94
+msgid "Please select target plural by clicking."
+msgstr ""
+
+#: weblate/static/editor/base.js:174
 #, javascript-format
 msgid "Cmd+%s"
 msgstr ""
 
-#: weblate/static/editor/base.js:150
+#: weblate/static/editor/base.js:176
 #, fuzzy, javascript-format
 #| msgid "Ctrl+M then %s"
 msgid "Ctrl+%s"
 msgstr "Ctrl+M mpé %s"
 
-#: weblate/static/editor/full.js:222
+#: weblate/static/editor/full.js:265
+msgid "Translation memory entry removed."
+msgstr ""
+
+#: weblate/static/editor/full.js:298
 msgid "The request for machine translation has failed:"
 msgstr "Lisɛ́ngɛli lya bobóngoli lokótá likátání:"
 
-#: weblate/static/editor/full.js:235
+#: weblate/static/editor/full.js:311
 #, javascript-format
 msgid "The request for machine translation using %s has failed:"
 msgstr "Lisɛ́ngɛli lya bobóngoli lokótá na bosáleli %s likátání:"
 
-#: weblate/static/editor/full.js:269
+#: weblate/static/editor/full.js:346
 #, fuzzy, javascript-format
 #| msgid "Ctrl+M then %s"
 msgid "Cmd+M then %s"
 msgstr "Ctrl+M mpé %s"
 
-#: weblate/static/editor/full.js:271
+#: weblate/static/editor/full.js:348
 #, javascript-format
 msgid "Ctrl+M then %s"
 msgstr "Ctrl+M mpé %s"
 
-#: weblate/static/editor/full.js:359
+#: weblate/static/editor/full.js:450
 #, javascript-format
 msgid "Press Cmd+I then %s to dismiss this."
 msgstr ""
 
-#: weblate/static/editor/full.js:364
+#: weblate/static/editor/full.js:455
 #, javascript-format
 msgid "Press Ctrl+I then %s to dismiss this."
 msgstr ""
 
-#: weblate/static/editor/full.js:493
-msgid "Copy"
-msgstr "Koákisa"
+#: weblate/static/editor/full.js:595
+msgid "Clone to translation"
+msgstr ""
 
-#: weblate/static/editor/full.js:499
-msgid "Copy and save"
-msgstr "Koákisa mpé kobátela"
+#: weblate/static/editor/full.js:601
+msgid "Accept"
+msgstr ""
 
-#: weblate/static/editor/zen.js:101
+#: weblate/static/editor/full.js:612
+msgid "Delete entry"
+msgstr ""
+
+#: weblate/static/editor/zen.js:105
 msgid "There are some unsaved changes, are you sure you want to leave?"
 msgstr "Mabóngoli maíke mabátelámí tɛ́ ezalí, ya sɔ̂lɔ́ olingí Kolongwa?"
 
-#: weblate/static/loader-bootstrap.js:160
-msgid "Add to screenshot"
-msgstr "Kobakisa na bokáti etálelo"
-
-#: weblate/static/loader-bootstrap.js:177
+#: weblate/static/loader-bootstrap.js:171
 msgid "Error loading search results!"
 msgstr "Mbéba na bobimisi bozwi bwa boluki!"
 
-#: weblate/static/loader-bootstrap.js:181
+#: weblate/static/loader-bootstrap.js:175
 msgid "No new matching source strings found."
 msgstr "Ndoba ya ebandela ya sika ya kokokana ezwámí tɛ́."
 
-#: weblate/static/loader-bootstrap.js:250
+#: weblate/static/loader-bootstrap.js:245
 msgid "Sort this column"
 msgstr "Kopɔnɔ molɔngɔ́ moye"
 
-#: weblate/static/loader-bootstrap.js:476
+#: weblate/static/loader-bootstrap.js:487
 msgid "Error while loading page:"
 msgstr "Mbéba na bobimisi bwa lonkásá:"
 
-#: weblate/static/loader-bootstrap.js:637
-#: weblate/static/loader-bootstrap.js:644
-msgid "Sunday"
-msgstr "Eyenga"
-
-#: weblate/static/loader-bootstrap.js:638
-msgid "Monday"
-msgstr "Mosálá mɔ̌kɔ́"
-
-#: weblate/static/loader-bootstrap.js:639
-msgid "Tuesday"
-msgstr "Misálá míbalé"
-
-#: weblate/static/loader-bootstrap.js:640
-msgid "Wednesday"
-msgstr "Misálá mísáto"
-
-#: weblate/static/loader-bootstrap.js:641
-msgid "Thursday"
-msgstr "Misálá mínei"
-
-#: weblate/static/loader-bootstrap.js:642
-msgid "Friday"
-msgstr "Misálá mítáno"
-
-#: weblate/static/loader-bootstrap.js:643
-msgid "Saturday"
-msgstr "Pɔ́sɔ"
-
-#: weblate/static/loader-bootstrap.js:647
-#: weblate/static/loader-bootstrap.js:654
-msgctxt "Short (for example three letter) name of day in week"
-msgid "Sun"
-msgstr "Eye"
-
-#: weblate/static/loader-bootstrap.js:648
-msgctxt "Short (for example three letter) name of day in week"
-msgid "Mon"
-msgstr "Mɔ̌k"
-
-#: weblate/static/loader-bootstrap.js:649
-msgctxt "Short (for example three letter) name of day in week"
-msgid "Tue"
-msgstr "Míb"
-
-#: weblate/static/loader-bootstrap.js:650
-msgctxt "Short (for example three letter) name of day in week"
-msgid "Wed"
-msgstr "Mís"
-
-#: weblate/static/loader-bootstrap.js:651
-msgctxt "Short (for example three letter) name of day in week"
-msgid "Thu"
-msgstr "Min"
-
-#: weblate/static/loader-bootstrap.js:652
-msgctxt "Short (for example three letter) name of day in week"
-msgid "Fri"
-msgstr "Mit"
-
-#: weblate/static/loader-bootstrap.js:653
-msgctxt "Short (for example three letter) name of day in week"
-msgid "Sat"
-msgstr "Pɔ́s"
-
-#: weblate/static/loader-bootstrap.js:657
-#: weblate/static/loader-bootstrap.js:664
-msgctxt "Minimal (for example two letter) name of day in week"
-msgid "Su"
-msgstr "Eye"
-
-#: weblate/static/loader-bootstrap.js:658
-msgctxt "Minimal (for example two letter) name of day in week"
-msgid "Mo"
-msgstr "Mɔ̌k"
-
-#: weblate/static/loader-bootstrap.js:659
-msgctxt "Minimal (for example two letter) name of day in week"
-msgid "Tu"
-msgstr "Míb"
-
-#: weblate/static/loader-bootstrap.js:660
-msgctxt "Minimal (for example two letter) name of day in week"
-msgid "We"
-msgstr "Mís"
-
-#: weblate/static/loader-bootstrap.js:661
-msgctxt "Minimal (for example two letter) name of day in week"
-msgid "Th"
-msgstr "Min"
-
-#: weblate/static/loader-bootstrap.js:662
-msgctxt "Minimal (for example two letter) name of day in week"
-msgid "Fr"
-msgstr "Mit"
-
-#: weblate/static/loader-bootstrap.js:663
-msgctxt "Minimal (for example two letter) name of day in week"
-msgid "Sa"
-msgstr "Pɔ́s"
-
-#: weblate/static/loader-bootstrap.js:667
-msgid "January"
-msgstr "Yanwáli"
-
-#: weblate/static/loader-bootstrap.js:668
-msgid "February"
-msgstr "Febwáli"
-
-#: weblate/static/loader-bootstrap.js:669
-msgid "March"
-msgstr "Mársi"
-
-#: weblate/static/loader-bootstrap.js:670
-msgid "April"
-msgstr "Apríli"
-
-#: weblate/static/loader-bootstrap.js:671
-msgid "May"
-msgstr "Máyí"
-
-#: weblate/static/loader-bootstrap.js:672
-msgid "June"
-msgstr "Yuni"
-
-#: weblate/static/loader-bootstrap.js:673
-msgid "July"
-msgstr "Yúli"
-
-#: weblate/static/loader-bootstrap.js:674
-msgid "August"
-msgstr "Augústo"
-
-#: weblate/static/loader-bootstrap.js:675
-msgid "September"
-msgstr "Sɛtɛ́mbɛ"
-
-#: weblate/static/loader-bootstrap.js:676
-msgid "October"
-msgstr "Ɔkɔtɔbɛ"
-
-#: weblate/static/loader-bootstrap.js:677
-msgid "November"
-msgstr "Novɛ́mbɛ"
-
-#: weblate/static/loader-bootstrap.js:678
-msgid "December"
-msgstr "Dɛsɛ́mbɛ"
-
-#: weblate/static/loader-bootstrap.js:681
-msgctxt "Short name of month"
-msgid "Jan"
-msgstr "Yan"
-
-#: weblate/static/loader-bootstrap.js:682
-msgctxt "Short name of month"
-msgid "Feb"
-msgstr "Feb"
-
-#: weblate/static/loader-bootstrap.js:683
-msgctxt "Short name of month"
-msgid "Mar"
-msgstr "Mar"
-
-#: weblate/static/loader-bootstrap.js:684
-msgctxt "Short name of month"
-msgid "Apr"
-msgstr "Apr"
-
-#: weblate/static/loader-bootstrap.js:685
-msgctxt "Short name of month"
-msgid "May"
-msgstr "Máy"
-
-#: weblate/static/loader-bootstrap.js:686
-msgctxt "Short name of month"
-msgid "Jun"
-msgstr "Yun"
-
-#: weblate/static/loader-bootstrap.js:687
-msgctxt "Short name of month"
-msgid "Jul"
-msgstr "Yúl"
-
-#: weblate/static/loader-bootstrap.js:688
-msgctxt "Short name of month"
-msgid "Aug"
-msgstr "Aug"
-
-#: weblate/static/loader-bootstrap.js:689
-msgctxt "Short name of month"
-msgid "Sep"
-msgstr "Sɛt"
-
-#: weblate/static/loader-bootstrap.js:690
-msgctxt "Short name of month"
-msgid "Oct"
-msgstr "Ɔkɔ"
-
-#: weblate/static/loader-bootstrap.js:691
-msgctxt "Short name of month"
-msgid "Nov"
-msgstr "Nov"
-
-#: weblate/static/loader-bootstrap.js:692
-msgctxt "Short name of month"
-msgid "Dec"
-msgstr "Dɛs"
-
-#: weblate/static/loader-bootstrap.js:694
-msgid "Today"
-msgstr "Lɛlɔ́"
-
-#: weblate/static/loader-bootstrap.js:695
-msgid "Clear"
-msgstr "Kozímisa"
-
-#: weblate/static/loader-bootstrap.js:855
+#: weblate/static/loader-bootstrap.js:762
 msgid "Text copied to clipboard."
 msgstr ""
 
-#: weblate/static/loader-bootstrap.js:858
+#: weblate/static/loader-bootstrap.js:766
 msgid "Please press Ctrl+C to copy."
 msgstr ""
 
-#: weblate/static/loader-bootstrap.js:882
+#: weblate/static/loader-bootstrap.js:790
 msgid "Search…"
 msgstr "Boluki…"
 
-#: weblate/static/loader-bootstrap.js:883
+#: weblate/static/loader-bootstrap.js:791
 msgid "Available:"
 msgstr "Ezalí:"
 
-#: weblate/static/loader-bootstrap.js:884
+#: weblate/static/loader-bootstrap.js:792
 msgid "Chosen:"
 msgstr "Eponamí:"
 
-#: weblate/static/loader-bootstrap.js:1143
+#: weblate/static/loader-bootstrap.js:1057
 msgid "Weblate is now scanning the repository, please be patient."
 msgstr ""
 
-#: weblate/static/zammad.js:3
+#: weblate/static/loader-bootstrap.js:1278
+msgctxt "Alert to user when opening browser developer console"
+msgid "Stop!"
+msgstr ""
+
+#: weblate/static/loader-bootstrap.js:1284
+msgid ""
+"This is a browser feature intended for developers. If someone told you to "
+"copy-paste something here, they are likely trying to compromise your Weblate "
+"account."
+msgstr ""
+
+#: weblate/static/loader-bootstrap.js:1290
+msgid "See https://en.wikipedia.org/wiki/Self-XSS for more information."
+msgstr ""
+
+#: weblate/static/zammad.js:7
 msgid "Weblate feedback"
 msgstr ""
 
-#: weblate/static/zammad.js:4
+#: weblate/static/zammad.js:8
 msgid "Get help"
 msgstr ""
 
-#: weblate/static/zammad.js:6
+#: weblate/static/zammad.js:10
 #, javascript-format
 msgid ""
 "Thank you for your inquiry (#%s)! We'll contact you as soon as possible."
 msgstr ""
 
-#: weblate/static/zammad.js:13
+#: weblate/static/zammad.js:17
 msgid "Subject"
 msgstr "Mokonza"
 
-#: weblate/static/zammad.js:21
+#: weblate/static/zammad.js:25
 msgid "Your name"
 msgstr "Nkómbó ya yɔ̌"
 
-#: weblate/static/zammad.js:29
+#: weblate/static/zammad.js:33
 msgid "Your e-mail"
 msgstr "Nkandá na yɔ̌"
 
-#: weblate/static/zammad.js:37
+#: weblate/static/zammad.js:41
 msgid "Message"
 msgstr "Nkomá"
 
-#: weblate/static/zammad.js:41
+#: weblate/static/zammad.js:45
 msgid ""
 "Please contact us in English, otherwise we might be unable to process your "
 "request."
@@ -372,9 +177,185 @@ msgstr ""
 "Bolimbisi komelà bisó na lingɛlɛ́sa, sɔ́kɔ́ tɛ̂ tokokoka kotálela motúna na yɔ̌ "
 "tɛ́."
 
-#: weblate/static/zammad.js:47
+#: weblate/static/zammad.js:51
 msgid "Attachments"
 msgstr ""
+
+#~ msgid "Sunday"
+#~ msgstr "Eyenga"
+
+#~ msgid "Monday"
+#~ msgstr "Mosálá mɔ̌kɔ́"
+
+#~ msgid "Tuesday"
+#~ msgstr "Misálá míbalé"
+
+#~ msgid "Wednesday"
+#~ msgstr "Misálá mísáto"
+
+#~ msgid "Thursday"
+#~ msgstr "Misálá mínei"
+
+#~ msgid "Friday"
+#~ msgstr "Misálá mítáno"
+
+#~ msgid "Saturday"
+#~ msgstr "Pɔ́sɔ"
+
+#~ msgctxt "Short (for example three letter) name of day in week"
+#~ msgid "Sun"
+#~ msgstr "Eye"
+
+#~ msgctxt "Short (for example three letter) name of day in week"
+#~ msgid "Mon"
+#~ msgstr "Mɔ̌k"
+
+#~ msgctxt "Short (for example three letter) name of day in week"
+#~ msgid "Tue"
+#~ msgstr "Míb"
+
+#~ msgctxt "Short (for example three letter) name of day in week"
+#~ msgid "Wed"
+#~ msgstr "Mís"
+
+#~ msgctxt "Short (for example three letter) name of day in week"
+#~ msgid "Thu"
+#~ msgstr "Min"
+
+#~ msgctxt "Short (for example three letter) name of day in week"
+#~ msgid "Fri"
+#~ msgstr "Mit"
+
+#~ msgctxt "Short (for example three letter) name of day in week"
+#~ msgid "Sat"
+#~ msgstr "Pɔ́s"
+
+#~ msgctxt "Minimal (for example two letter) name of day in week"
+#~ msgid "Su"
+#~ msgstr "Eye"
+
+#~ msgctxt "Minimal (for example two letter) name of day in week"
+#~ msgid "Mo"
+#~ msgstr "Mɔ̌k"
+
+#~ msgctxt "Minimal (for example two letter) name of day in week"
+#~ msgid "Tu"
+#~ msgstr "Míb"
+
+#~ msgctxt "Minimal (for example two letter) name of day in week"
+#~ msgid "We"
+#~ msgstr "Mís"
+
+#~ msgctxt "Minimal (for example two letter) name of day in week"
+#~ msgid "Th"
+#~ msgstr "Min"
+
+#~ msgctxt "Minimal (for example two letter) name of day in week"
+#~ msgid "Fr"
+#~ msgstr "Mit"
+
+#~ msgctxt "Minimal (for example two letter) name of day in week"
+#~ msgid "Sa"
+#~ msgstr "Pɔ́s"
+
+#~ msgid "January"
+#~ msgstr "Yanwáli"
+
+#~ msgid "February"
+#~ msgstr "Febwáli"
+
+#~ msgid "March"
+#~ msgstr "Mársi"
+
+#~ msgid "April"
+#~ msgstr "Apríli"
+
+#~ msgid "May"
+#~ msgstr "Máyí"
+
+#~ msgid "June"
+#~ msgstr "Yuni"
+
+#~ msgid "July"
+#~ msgstr "Yúli"
+
+#~ msgid "August"
+#~ msgstr "Augústo"
+
+#~ msgid "September"
+#~ msgstr "Sɛtɛ́mbɛ"
+
+#~ msgid "October"
+#~ msgstr "Ɔkɔtɔbɛ"
+
+#~ msgid "November"
+#~ msgstr "Novɛ́mbɛ"
+
+#~ msgid "December"
+#~ msgstr "Dɛsɛ́mbɛ"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Jan"
+#~ msgstr "Yan"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Feb"
+#~ msgstr "Feb"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Mar"
+#~ msgstr "Mar"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Apr"
+#~ msgstr "Apr"
+
+#~ msgctxt "Short name of month"
+#~ msgid "May"
+#~ msgstr "Máy"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Jun"
+#~ msgstr "Yun"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Jul"
+#~ msgstr "Yúl"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Aug"
+#~ msgstr "Aug"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Sep"
+#~ msgstr "Sɛt"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Oct"
+#~ msgstr "Ɔkɔ"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Nov"
+#~ msgstr "Nov"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Dec"
+#~ msgstr "Dɛs"
+
+#~ msgid "Today"
+#~ msgstr "Lɛlɔ́"
+
+#~ msgid "Clear"
+#~ msgstr "Kozímisa"
+
+#~ msgid "Copy"
+#~ msgstr "Koákisa"
+
+#~ msgid "Copy and save"
+#~ msgstr "Koákisa mpé kobátela"
+
+#~ msgid "Add to screenshot"
+#~ msgstr "Kobakisa na bokáti etálelo"
 
 #~ msgid "Ctrl+I then %s"
 #~ msgstr "Ctrl+I mpé %s"

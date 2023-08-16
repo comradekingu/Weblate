@@ -1,21 +1,6 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Test for variants."""
 
@@ -108,31 +93,59 @@ class VariantTest(ViewTestCase):
         unit.save()
         self.assertEqual(Variant.objects.count(), 0)
 
+    def test_variants_flag_delete(self, code: str = "en"):
+        self.add_variants()
+        self.assertEqual(Variant.objects.count(), 0)
+        translation = self.component.translation_set.get(language_code=code)
+
+        unit = translation.unit_set.get(context="barMin")
+        unit.extra_flags = "variant:'Default string'"
+        unit.save()
+        self.assertEqual(Variant.objects.count(), 1)
+        self.assertEqual(Variant.objects.get().unit_set.count(), 4)
+
+        translation.delete_unit(None, unit)
+        self.assertEqual(Variant.objects.count(), 0)
+
     def test_variants_flag_translation(self):
         self.test_variants_flag("cs")
 
     def test_add_variant_unit(self):
         self.make_manager()
-        base = "Thank you for using Weblate."
+        translation = self.component.translation_set.get(language_code="cs")
+        source = self.component.translation_set.get(language_code="en")
+        base = source.unit_set.get(source="Thank you for using Weblate.")
         response = self.client.post(
-            reverse(
-                "new-unit",
-                kwargs={
-                    "project": self.component.project.slug,
-                    "component": self.component.slug,
-                    "lang": "en",
-                },
-            ),
+            reverse("new-unit", kwargs={"path": source.get_url_path()}),
             {
                 "context": "variantial",
                 "source_0": "Source",
-                "variant": base,
+                "variant": base.id,
             },
             follow=True,
         )
         self.assertContains(response, "New string has been added")
 
-        translation = self.component.translation_set.get(language_code="cs")
         unit = translation.unit_set.get(context="variantial")
-        self.assertEqual(unit.source_unit.extra_flags, f'variant:"{base}"')
-        self.assertTrue(unit.defined_variants.exists())
+        self.assertEqual(
+            unit.source_unit.extra_flags,
+            f'variant:"{base.source}"',  # noqa: B028
+        )
+        variants = unit.defined_variants.all()
+        self.assertEqual(len(variants), 1)
+        self.assertEqual(variants[0].unit_set.count(), 4)
+        self.assertEqual(Variant.objects.count(), 1)
+
+        base = source.unit_set.get(source="Hello, world!\n")
+        response = self.client.post(
+            reverse("new-unit", kwargs={"path": source.get_url_path()}),
+            {"context": "variant2", "source_0": "Source", "variant": base.id},
+            follow=True,
+        )
+        self.assertContains(response, "New string has been added")
+        unit = translation.unit_set.get(context="variant2")
+        self.assertEqual(unit.source_unit.extra_flags, r'variant:"Hello, world!\n"')
+        variants = unit.defined_variants.all()
+        self.assertEqual(len(variants), 1)
+        self.assertEqual(variants[0].unit_set.count(), 4)
+        self.assertEqual(Variant.objects.count(), 2)

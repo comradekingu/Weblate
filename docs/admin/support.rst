@@ -12,14 +12,11 @@ offerings at <https://weblate.org/support/>.
 Integrating support
 -------------------
 
-
-.. versionadded:: 3.8
-
 Purchased support packages can optionally be integrated into your Weblate
 `subscription management <https://weblate.org/user/>`_ interface, from where you will find a link to it.
 Basic instance details about your installation are also reported back to Weblate this way.
 
-.. image:: /images/support.png
+.. image:: /screenshots/support.webp
 
 .. _support-data:
 
@@ -56,34 +53,37 @@ Discover Weblate
 
 .. versionadded:: 4.5.2
 
-.. note::
-
-   This feature is currently in early beta.
-
 Discover Weblate is an opt-in service that makes it easier for users to find
 Weblate servers and communities. Users can browse registered services on
 <https://weblate.org/discover/>, and find there projects to contribute.
 
-To list your server with an active support subscription (see
-:ref:`activate-support`) in Discover Weblate all you need to do is turn this on
-in the management panel:
-
-.. image:: /images/support-discovery.png
-
-.. hint::
-
-   You can customize the listing by providing a text and image (570 x 260
-   pixels) at <https://weblate.org/user/>
-
-Listing your server without a support subsription in Discover Weblate:
-
-1. Register yourself at <https://weblate.org/user/>
-2. Register your Weblate server in the discovery database at <https://weblate.org/subscription/discovery/>
-3. Confirm the service activation in your Weblate and turn on the discovery listing in your Weblate management page using :guilabel:`Enable discovery` button:
-
-.. image:: /images/support-discovery.png
+Getting listed
+++++++++++++++
 
 .. hint::
 
    Participating in Discover Weblate makes Weblate submit some information
    about your server, please see :ref:`support-data`.
+
+
+To list your server with an active support subscription (see
+:ref:`activate-support`) in Discover Weblate all you need to do is turn this on
+in the management panel:
+
+.. image:: /screenshots/support-discovery.webp
+
+Listing your server without a support subscription in Discover Weblate:
+
+1. Register yourself at <https://weblate.org/user/>
+2. Register your Weblate server in the discovery database at <https://weblate.org/subscription/discovery/>
+3. Confirm the service activation in your Weblate and turn on the discovery listing in your Weblate management page using :guilabel:`Enable discovery` button:
+
+.. image:: /screenshots/support-discovery.webp
+
+.. _customize-discover:
+
+Customizing listing
++++++++++++++++++++
+
+You can customize the listing by providing a text and image (570 x 260 pixels)
+at <https://weblate.org/user/>.

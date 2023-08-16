@@ -1,21 +1,6 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Test for glossary manipulations."""
 
@@ -24,6 +9,7 @@ import json
 from django.urls import reverse
 
 from weblate.glossary.models import get_glossary_terms
+from weblate.glossary.tasks import sync_terminology
 from weblate.trans.models import Unit
 from weblate.trans.tests.test_views import ViewTestCase
 from weblate.trans.tests.utils import get_test_file
@@ -92,6 +78,8 @@ more options)</p>
 class GlossaryTest(ViewTestCase):
     """Testing of glossary manipulations."""
 
+    CREATE_GLOSSARIES: bool = True
+
     def setUp(self):
         super().setUp()
         self.glossary_component = self.project.glossaries[0]
@@ -101,7 +89,7 @@ class GlossaryTest(ViewTestCase):
 
     @classmethod
     def _databases_support_transactions(cls):
-        # This is workaroud for MySQL as FULL TEXT index does not work
+        # This is workaround for MySQL as FULL TEXT index does not work
         # well inside a transaction, so we avoid using transactions for
         # tests. Otherwise we end up with no matches for the query.
         # See https://dev.mysql.com/doc/refman/5.6/en/innodb-fulltext-index.html
@@ -114,9 +102,7 @@ class GlossaryTest(ViewTestCase):
             params = {"file": handle, "method": "add"}
             params.update(kwargs)
             return self.client.post(
-                reverse(
-                    "upload_translation", kwargs=self.glossary.get_reverse_url_kwargs()
-                ),
+                reverse("upload", kwargs={"path": self.glossary.get_url_path()}),
                 params,
             )
 
@@ -286,18 +272,21 @@ class GlossaryTest(ViewTestCase):
             {"Reach", "The Reach", "Town"},
         )
 
-    def test_get_long(self):
-        """Test parsing long source string."""
+    def get_long_unit(self):
         unit = self.get_unit()
         unit.source = LONG
         unit.save()
+        return unit
+
+    def test_get_long(self):
+        """Test parsing long source string."""
+        unit = self.get_long_unit()
         self.assertEqual(
             set(get_glossary_terms(unit).values_list("source", flat=True)), set()
         )
-        return unit
 
     def test_stoplist(self):
-        unit = self.test_get_long()
+        unit = self.get_long_unit()
         self.add_term("the blue", "modrý")
         self.add_term("the red", "červený")
         unit.glossary_terms = None
@@ -315,22 +304,52 @@ class GlossaryTest(ViewTestCase):
             {"Nordrhein-Westfalen"},
         )
 
-    def test_add(self):
-        """Test for adding term from translate page."""
+    def test_get_single(self):
+        unit = self.get_unit("Thank you for using Weblate.")
+        unit.source = "thank"
+        self.add_term("thank", "díky")
+        self.assertEqual(
+            set(get_glossary_terms(unit).values_list("source", flat=True)),
+            {"thank"},
+        )
+
+    def do_add_unit(self, **kwargs):
         unit = self.get_unit("Thank you for using Weblate.")
         # Add term
         response = self.client.post(
             reverse("js-add-glossary", kwargs={"unit_id": unit.pk}),
-            {"source": "source", "target": "překlad", "translation": self.glossary.pk},
+            {
+                "source": "source",
+                "target": "překlad",
+                "translation": self.glossary.pk,
+                **kwargs,
+            },
         )
         content = json.loads(response.content.decode())
         self.assertEqual(content["responseCode"], 200)
+
+    def test_add(self):
+        """Test for adding term from translate page."""
+        start = Unit.objects.count()
+        self.do_add_unit()
+        # Should be added to the source and translation only
+        self.assertEqual(Unit.objects.count(), start + 2)
+
+    def test_add_terminology(self):
+        start = Unit.objects.count()
+        self.do_add_unit(terminology=1)
+        # Should be added to all languages
+        self.assertEqual(Unit.objects.count(), start + 4)
+
+    def test_add_duplicate(self):
+        self.do_add_unit()
+        self.do_add_unit()
 
     def test_terminology(self):
         start = Unit.objects.count()
 
         # Add single term
-        self.test_add()
+        self.do_add_unit()
 
         # Verify it has been added to single language (+ source)
         unit = self.glossary_component.source_translation.unit_set.get(source="source")
@@ -349,3 +368,61 @@ class GlossaryTest(ViewTestCase):
         # Verify it has been added to all languages
         self.assertEqual(Unit.objects.count(), start + 4)
         self.assertEqual(unit.unit_set.count(), 4)
+
+        # Terminology sync should be no-op now
+        sync_terminology(unit.translation.component.id, unit.translation.component)
+        self.assertEqual(Unit.objects.count(), start + 4)
+        self.assertEqual(unit.unit_set.count(), 4)
+
+    def test_terminology_explanation_sync(self):
+        unit = self.get_unit("Thank you for using Weblate.")
+        # Add terms
+        response = self.client.post(
+            reverse("js-add-glossary", kwargs={"unit_id": unit.pk}),
+            {
+                "source": "source 1",
+                "translation": self.glossary.pk,
+                "explanation": "explained 1",
+                "terminology": "1",
+            },
+        )
+        content = json.loads(response.content.decode())
+        self.assertEqual(content["responseCode"], 200)
+
+        response = self.client.post(
+            reverse("js-add-glossary", kwargs={"unit_id": unit.pk}),
+            {
+                "source": "source 2",
+                "translation": self.glossary.pk,
+                "explanation": "explained 2",
+                "terminology": "1",
+            },
+        )
+        content = json.loads(response.content.decode())
+        self.assertEqual(content["responseCode"], 200)
+
+        glossary_units = Unit.objects.filter(
+            translation__component=self.glossary.component
+        )
+
+        self.assertEqual(self.glossary.unit_set.count(), 2)
+        self.assertEqual(
+            glossary_units.count(), 2 * self.glossary.component.translation_set.count()
+        )
+
+        self.assertEqual(
+            set(
+                glossary_units.filter(translation__language_code="cs").values_list(
+                    "explanation", flat=True
+                )
+            ),
+            {"explained 1", "explained 2"},
+        )
+        self.assertEqual(
+            set(
+                glossary_units.filter(translation__language_code="en").values_list(
+                    "explanation", flat=True
+                )
+            ),
+            {""},
+        )

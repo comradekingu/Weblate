@@ -1,21 +1,7 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Test for search views."""
 
 import re
@@ -34,7 +20,7 @@ from weblate.utils.state import STATE_FUZZY, STATE_READONLY, STATE_TRANSLATED
 class SearchViewTest(ViewTestCase):
     @classmethod
     def _databases_support_transactions(cls):
-        # This is workaroud for MySQL as FULL TEXT index does not work
+        # This is workaround for MySQL as FULL TEXT index does not work
         # well inside a transaction, so we avoid using transactions for
         # tests. Otherwise we end up with no matches for the query.
         # See https://dev.mysql.com/doc/refman/5.6/en/innodb-fulltext-index.html
@@ -105,7 +91,9 @@ class SearchViewTest(ViewTestCase):
 
     def test_project_search(self):
         """Searching within project."""
-        self.do_search_url(reverse("search", kwargs=self.kw_project))
+        self.do_search_url(
+            reverse("search", kwargs={"path": self.project.get_url_path()})
+        )
 
     def test_component_search(self):
         """Searching within component."""
@@ -114,7 +102,7 @@ class SearchViewTest(ViewTestCase):
     def test_project_language_search(self):
         """Searching within project."""
         self.do_search_url(
-            reverse("search", kwargs={"project": self.project.slug, "lang": "cs"})
+            reverse("search", kwargs={"path": [self.project.slug, "-", "cs"]})
         )
 
     def test_translation_search(self):
@@ -174,7 +162,7 @@ class SearchViewTest(ViewTestCase):
         self.do_search({"offset": 5}, None)
 
     def test_search_type(self):
-        self.do_search({"q": "state:<translated"}, "Strings needing action")
+        self.do_search({"q": "state:<translated"}, "Unfinished strings")
         self.do_search({"q": "state:needs-editing"}, None)
         self.do_search({"q": "has:suggestion"}, None)
         self.do_search({"q": "has:check"}, None)
@@ -189,7 +177,7 @@ class SearchViewTest(ViewTestCase):
         self.assertNotContains(response, "Plural form ")
 
     def test_checksum(self):
-        self.do_search({"checksum": "invalid"}, "Invalid checksum specified!")
+        self.do_search({"checksum": "invalid"}, None)
 
 
 class ReplaceTest(ViewTestCase):
@@ -200,14 +188,20 @@ class ReplaceTest(ViewTestCase):
         self.edit_unit("Hello, world!\n", "Nazdar svete!\n")
         self.unit = self.get_unit()
 
-    def do_replace_test(self, url, confirm=True):
+    def do_replace_test(self, url, confirm=True, query=None):
+        query = query or ""
         response = self.client.post(
-            url, {"search": "Nazdar", "replacement": "Ahoj"}, follow=True
+            url, {"q": query, "search": "Nazdar", "replacement": "Ahoj"}, follow=True
         )
         self.assertContains(
             response, "Please review and confirm the search and replace results."
         )
-        payload = {"search": "Nazdar", "replacement": "Ahoj", "confirm": "1"}
+        payload = {
+            "q": query,
+            "search": "Nazdar",
+            "replacement": "Ahoj",
+            "confirm": "1",
+        }
         if confirm:
             payload["units"] = self.unit.pk
         response = self.client.post(url, payload, follow=True)
@@ -235,18 +229,46 @@ class ReplaceTest(ViewTestCase):
         unit = self.get_unit()
         self.assertEqual(unit.target, "Nazdar svete!\n")
 
+    def test_replace_translated(self):
+        self.do_replace_test(
+            reverse("replace", kwargs=self.kw_translation),
+            "is:translated",
+        )
+
+    def test_replace_nontranslated(self):
+        response = self.client.post(
+            reverse("replace", kwargs=self.kw_translation),
+            {"q": "NOT is:translated", "search": "Nazdar", "replacement": "Ahoj"},
+            follow=True,
+        )
+        self.assertNotContains(
+            response, "Please review and confirm the search and replace results."
+        )
+
     def test_replace(self):
         self.do_replace_test(reverse("replace", kwargs=self.kw_translation))
 
     def test_replace_project(self):
-        self.do_replace_test(reverse("replace", kwargs=self.kw_project))
+        self.do_replace_test(
+            reverse("replace", kwargs={"path": self.project.get_url_path()})
+        )
 
     def test_replace_component(self):
         self.do_replace_test(reverse("replace", kwargs=self.kw_component))
 
+    def test_replace_project_language(self):
+        self.do_replace_test(
+            reverse(
+                "replace",
+                kwargs={
+                    "path": (self.project.slug, "-", self.translation.language.code)
+                },
+            )
+        )
+
 
 class BulkEditTest(ViewTestCase):
-    """Test for buld edit functionality."""
+    """Test for build edit functionality."""
 
     def setUp(self):
         super().setUp()
@@ -263,7 +285,7 @@ class BulkEditTest(ViewTestCase):
 
     def test_no_match(self):
         response = self.client.post(
-            reverse("bulk-edit", kwargs=self.kw_project),
+            reverse("bulk-edit", kwargs={"path": self.project.get_url_path()}),
             {"q": "state:approved", "state": STATE_FUZZY},
             follow=True,
         )
@@ -275,57 +297,75 @@ class BulkEditTest(ViewTestCase):
         self.do_bulk_edit_test(reverse("bulk-edit", kwargs=self.kw_translation))
 
     def test_bulk_edit_project(self):
-        self.do_bulk_edit_test(reverse("bulk-edit", kwargs=self.kw_project))
+        self.do_bulk_edit_test(
+            reverse("bulk-edit", kwargs={"path": self.project.get_url_path()})
+        )
 
     def test_bulk_edit_component(self):
         self.do_bulk_edit_test(reverse("bulk-edit", kwargs=self.kw_component))
 
+    def test_bulk_edit_project_language(self):
+        self.do_bulk_edit_test(
+            reverse(
+                "bulk-edit",
+                kwargs={
+                    "path": (self.project.slug, "-", self.translation.language.code)
+                },
+            )
+        )
+
     def test_bulk_flags(self):
         response = self.client.post(
-            reverse("bulk-edit", kwargs=self.kw_project),
+            reverse("bulk-edit", kwargs={"path": self.project.get_url_path()}),
             {"q": "state:needs-editing", "state": -1, "add_flags": "python-format"},
             follow=True,
         )
         self.assertContains(response, "Bulk edit completed, 1 string was updated.")
         unit = self.get_unit()
-        self.assertTrue("python-format" in unit.all_flags)
+        self.assertIn("python-format", unit.all_flags)
         response = self.client.post(
-            reverse("bulk-edit", kwargs=self.kw_project),
+            reverse("bulk-edit", kwargs={"path": self.project.get_url_path()}),
             {"q": "state:needs-editing", "state": -1, "remove_flags": "python-format"},
             follow=True,
         )
         self.assertContains(response, "Bulk edit completed, 1 string was updated.")
         unit = self.get_unit()
-        self.assertFalse("python-format" in unit.all_flags)
+        self.assertNotIn("python-format", unit.all_flags)
 
     def test_bulk_read_only(self):
         response = self.client.post(
-            reverse("bulk-edit", kwargs=self.kw_project),
+            reverse("bulk-edit", kwargs={"path": self.project.get_url_path()}),
             {"q": "language:en", "state": -1, "add_flags": "read-only"},
             follow=True,
         )
         self.assertContains(response, "Bulk edit completed, 4 strings were updated.")
         unit = self.get_unit()
-        self.assertTrue("read-only" in unit.all_flags)
+        self.assertIn("read-only", unit.all_flags)
         response = self.client.post(
-            reverse("bulk-edit", kwargs=self.kw_project),
+            reverse("bulk-edit", kwargs={"path": self.project.get_url_path()}),
             {"q": "language:en", "state": -1, "remove_flags": "read-only"},
             follow=True,
         )
         self.assertContains(response, "Bulk edit completed, 4 strings were updated.")
         unit = self.get_unit()
-        self.assertFalse("read-only" in unit.all_flags)
+        self.assertNotIn("read-only", unit.all_flags)
 
     def test_bulk_labels(self):
         label = self.project.label_set.create(name="Test label", color="black")
         response = self.client.post(
-            reverse("bulk-edit", kwargs=self.kw_project),
+            reverse("bulk-edit", kwargs={"path": self.project.get_url_path()}),
             {"q": "state:needs-editing", "state": -1, "add_labels": label.pk},
             follow=True,
         )
         self.assertContains(response, "Bulk edit completed, 1 string was updated.")
+        response = self.client.post(
+            reverse("bulk-edit", kwargs={"path": self.project.get_url_path()}),
+            {"q": "state:needs-editing", "state": -1, "add_labels": label.pk},
+            follow=True,
+        )
+        self.assertContains(response, "Bulk edit completed, no strings were updated.")
         unit = self.get_unit()
-        self.assertTrue(label in unit.all_labels)
+        self.assertIn(label, unit.all_labels)
         self.assertEqual(getattr(unit.translation.stats, f"label:{label.name}"), 1)
         # Clear local outdated cache
         unit.source_unit.translation.stats.clear()
@@ -334,13 +374,19 @@ class BulkEditTest(ViewTestCase):
             1,
         )
         response = self.client.post(
-            reverse("bulk-edit", kwargs=self.kw_project),
+            reverse("bulk-edit", kwargs={"path": self.project.get_url_path()}),
             {"q": "state:needs-editing", "state": -1, "remove_labels": label.pk},
             follow=True,
         )
         self.assertContains(response, "Bulk edit completed, 1 string was updated.")
+        response = self.client.post(
+            reverse("bulk-edit", kwargs={"path": self.project.get_url_path()}),
+            {"q": "state:needs-editing", "state": -1, "remove_labels": label.pk},
+            follow=True,
+        )
+        self.assertContains(response, "Bulk edit completed, no strings were updated.")
         unit = self.get_unit()
-        self.assertFalse(label in unit.labels.all())
+        self.assertNotIn(label, unit.labels.all())
         self.assertEqual(getattr(unit.translation.stats, f"label:{label.name}"), 0)
         # Clear local outdated cache
         unit.source_unit.translation.stats.clear()
@@ -349,16 +395,44 @@ class BulkEditTest(ViewTestCase):
             0,
         )
 
-    def test_source_state(self):
-        mono = Component.objects.create(
-            name="Test2",
-            slug="test2",
-            project=self.project,
-            repo="weblate://test/test",
-            file_format="json",
-            filemask="json-mono/*.json",
-            template="json-mono/en.json",
+    def test_bulk_translation_label(self):
+        label = self.project.label_set.create(
+            name="Automatically translated", color="black"
         )
+        unit = self.get_unit()
+        unit.labels.add(label)
+        # Clear local outdated cache
+        unit.translation.stats.clear()
+        self.assertEqual(
+            getattr(unit.translation.stats, f"label:{label.name}"),
+            1,
+        )
+        response = self.client.post(
+            reverse("bulk-edit", kwargs={"path": self.project.get_url_path()}),
+            {"q": "state:>=empty", "state": -1, "remove_labels": label.pk},
+            follow=True,
+        )
+        self.assertContains(response, "Bulk edit completed, 1 string was updated.")
+        unit = self.get_unit()
+        self.assertNotIn(label, unit.labels.all())
+        # Clear local outdated cache
+        unit.translation.stats.clear()
+        self.assertEqual(
+            getattr(unit.translation.stats, f"label:{label.name}"),
+            0,
+        )
+
+    def test_source_state(self):
+        with override_settings(CREATE_GLOSSARIES=self.CREATE_GLOSSARIES):
+            mono = Component.objects.create(
+                name="Test2",
+                slug="test2",
+                project=self.project,
+                repo="weblate://test/test",
+                file_format="json",
+                filemask="json-mono/*.json",
+                template="json-mono/en.json",
+            )
         # Translate single unit
         translation = mono.translation_set.get(language_code="cs")
         translation.unit_set.get(context="hello").translate(
@@ -367,9 +441,7 @@ class BulkEditTest(ViewTestCase):
         self.assertEqual(translation.unit_set.filter(state=STATE_READONLY).count(), 0)
         self.assertEqual(translation.unit_set.filter(state=STATE_TRANSLATED).count(), 1)
 
-        url = reverse(
-            "bulk-edit", kwargs={"project": self.project.slug, "component": mono.slug}
-        )
+        url = reverse("bulk-edit", kwargs={"path": mono.get_url_path()})
 
         # Mark all source strings as needing edit and that should turn all
         # translated strings read-only

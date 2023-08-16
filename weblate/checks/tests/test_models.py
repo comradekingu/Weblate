@@ -1,25 +1,11 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Tests for unitdata models."""
 
 from django.urls import reverse
+from django.utils.html import format_html
 
 from weblate.checks.models import Check
 from weblate.checks.tasks import batch_update_checks
@@ -30,7 +16,7 @@ from weblate.trans.tests.test_views import FixtureTestCase, ViewTestCase
 
 class CheckModelTestCase(FixtureTestCase):
     def create_check(self, name):
-        return Check.objects.create(unit=self.get_unit(), check=name)
+        return Check.objects.create(unit=self.get_unit(), name=name)
 
     def test_check(self):
         check = self.create_check("same")
@@ -51,12 +37,15 @@ class CheckModelTestCase(FixtureTestCase):
         unit.source_unit.save()
         check = self.create_check("max-size")
         url = reverse(
-            "render-check", kwargs={"check_id": check.check, "unit_id": unit.id}
+            "render-check", kwargs={"check_id": check.name, "unit_id": unit.id}
         )
         self.assertEqual(
             str(check.get_description()),
-            '<a href="{0}?pos=0" class="thumbnail">'
-            '<img class="img-responsive" src="{0}?pos=0" /></a>'.format(url),
+            format_html(
+                '<a href="{0}?pos=0" class="thumbnail">'
+                '<img class="img-responsive" src="{0}?pos=0" /></a>',
+                url,
+            ),
         )
         self.assert_png(self.client.get(url))
 
@@ -84,15 +73,17 @@ class BatchUpdateTest(ViewTestCase):
 
     def test_autotranslate(self):
         other = self.do_base()
+        translation = other.translation_set.get(language_code="cs")
         auto_translate(
             None,
-            other.translation_set.get(language_code="cs").pk,
+            translation.pk,
             "translate",
             "todo",
             "others",
             self.component.pk,
             [],
             99,
+            translation=translation,
         )
         unit = self.get_unit()
         self.assertEqual(unit.all_checks_names, set())

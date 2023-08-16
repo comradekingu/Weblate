@@ -1,29 +1,24 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
-from unittest import SkipTest
+# SPDX-License-Identifier: GPL-3.0-or-later
 
+import os.path
+import tempfile
+from difflib import get_close_matches
+from itertools import chain
+from shutil import copyfile
+
+from django.core.files import File
 from django.urls import reverse
+from django.utils import timezone
+from rest_framework.test import APITestCase
 
-import weblate.screenshots.views
+from weblate.lang.models import Language
 from weblate.screenshots.models import Screenshot
+from weblate.screenshots.views import get_tesseract, ocr_get_strings
+from weblate.trans.tests.test_models import RepoTestCase
 from weblate.trans.tests.test_views import FixtureTestCase
-from weblate.trans.tests.utils import get_test_file
+from weblate.trans.tests.utils import create_test_user, get_test_file
 from weblate.utils.db import using_postgresql
 
 TEST_SCREENSHOT = get_test_file("screenshot.png")
@@ -32,7 +27,7 @@ TEST_SCREENSHOT = get_test_file("screenshot.png")
 class ViewTest(FixtureTestCase):
     @classmethod
     def _databases_support_transactions(cls):
-        # This is workaroud for MySQL as FULL TEXT index does not work
+        # This is workaround for MySQL as FULL TEXT index does not work
         # well inside a transaction, so we avoid using transactions for
         # tests. Otherwise we end up with no matches for the query.
         # See https://dev.mysql.com/doc/refman/5.6/en/innodb-fulltext-index.html
@@ -53,7 +48,9 @@ class ViewTest(FixtureTestCase):
             }
             data.update(kwargs)
             return self.client.post(
-                reverse("screenshots", kwargs=self.kw_component), data, follow=True
+                reverse("screenshots", kwargs=self.kw_component),
+                data,
+                follow=True,
             )
 
     def test_upload_denied(self):
@@ -69,9 +66,9 @@ class ViewTest(FixtureTestCase):
     def test_upload_fail(self):
         self.make_manager()
         response = self.do_upload(name="")
-        self.assertContains(response, "Failed to upload screenshot")
+        self.assertContains(response, "Could not upload screenshot")
         response = self.do_upload(image="")
-        self.assertContains(response, "Failed to upload screenshot")
+        self.assertContains(response, "Could not upload screenshot")
 
     def test_upload_source(self):
         self.make_manager()
@@ -105,6 +102,9 @@ class ViewTest(FixtureTestCase):
         self.client.post(reverse("screenshot-delete", kwargs={"pk": screenshot.pk}))
         self.assertEqual(Screenshot.objects.count(), 0)
 
+    def extract_pk(self, data):
+        return int(data.split('data-pk="')[1].split('"')[0])
+
     def test_source_manipulations(self):
         self.make_manager()
         self.do_upload()
@@ -117,9 +117,10 @@ class ViewTest(FixtureTestCase):
         )
         data = response.json()
         self.assertEqual(data["responseCode"], 200)
-        self.assertEqual(len(data["results"]), 1)
+        self.assertIn('<a class="add-string', data["results"])
 
-        source_pk = data["results"][0]["pk"]
+        source_pk = self.extract_pk(data["results"])
+
         self.assertEqual(
             source_pk,
             self.component.source_translation.unit_set.search("hello").get().pk,
@@ -148,9 +149,24 @@ class ViewTest(FixtureTestCase):
         )
         self.assertEqual(screenshot.units.count(), 0)
 
+    def test_ocr_backend(self):
+        # Extract strings
+        with get_tesseract(Language.objects.get(code="en")) as api:
+            result = list(ocr_get_strings(api, TEST_SCREENSHOT, 72))
+
+        # Reverse logic would make sense here, but we want to use same order as in views.py
+        matches = list(
+            chain.from_iterable(
+                get_close_matches(part, ["Hello, world!\n"], cutoff=0.9)
+                for part in result
+            )
+        )
+
+        self.assertTrue(
+            matches, f"Could not find string in tesseract results: {result}"
+        )
+
     def test_ocr(self):
-        if not weblate.screenshots.views.HAS_OCR:
-            raise SkipTest("OCR not supported")
         self.make_manager()
         self.do_upload()
         screenshot = Screenshot.objects.all()[0]
@@ -163,25 +179,11 @@ class ViewTest(FixtureTestCase):
 
         self.assertEqual(data["responseCode"], 200)
         # We should find at least one string
-        self.assertGreaterEqual(len(data["results"]), 1)
-
-    def test_ocr_disabled(self):
-        orig = weblate.screenshots.views.HAS_OCR
-        weblate.screenshots.views.HAS_OCR = False
-        try:
-            self.make_manager()
-            self.do_upload()
-            screenshot = Screenshot.objects.all()[0]
-
-            # Search for string
-            response = self.client.post(
-                reverse("screenshot-js-ocr", kwargs={"pk": screenshot.pk})
-            )
-            data = response.json()
-
-            self.assertEqual(data["responseCode"], 500)
-        finally:
-            weblate.screenshots.views.HAS_OCR = orig
+        self.assertIn(
+            '<a class="add-string',
+            data["results"],
+            "OCR recognition not working, no recognized strings found",
+        )
 
     def test_translation_manipulations(self):
         self.make_manager()
@@ -196,9 +198,9 @@ class ViewTest(FixtureTestCase):
         )
         data = response.json()
         self.assertEqual(data["responseCode"], 200)
-        self.assertEqual(len(data["results"]), 1)
+        self.assertIn('<a class="add-string', data["results"])
 
-        source_pk = data["results"][0]["pk"]
+        source_pk = self.extract_pk(data["results"])
         self.assertEqual(source_pk, translation.unit_set.search("hello").get().pk)
 
         # Add found string
@@ -223,3 +225,89 @@ class ViewTest(FixtureTestCase):
             {"source": source_pk},
         )
         self.assertEqual(screenshot.units.count(), 0)
+
+
+class ScreenshotVCSTest(APITestCase, RepoTestCase):
+    """Test class for syncing vcs screenshots in weblate."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = create_test_user()
+        self.user.is_superuser = True
+        self.user.save()
+        self.client.credentials(HTTP_AUTHORIZATION="Token " + self.user.auth_token.key)
+        self.client.login(username="testuser", password="testpassword")
+
+        self.component = self._create_component(
+            "json",
+            "intermediate/*.json",
+            screenshot_filemask="*.png",
+        )
+
+        # Add a screenshot linked to the component
+        shot = Screenshot.objects.create(
+            name="test-update",
+            translation=self.component.source_translation,
+            repository_filename="test-update.png",
+        )
+        with open(TEST_SCREENSHOT, "rb") as handle:
+            data = handle.read()
+            half_data_size = len(data) // 2
+            with tempfile.NamedTemporaryFile(suffix="png") as temp_file:
+                temp_file.write(data[:half_data_size])
+                temp_file.flush()
+                temp_file.seek(0)
+                shot.image.save("test-update", File(temp_file))
+
+    def test_update_screenshots_from_repo(self):
+        repository = self.component.repository
+        last_revision = repository.last_revision
+        existing_ss_size = Screenshot.objects.filter(
+            translation__component=self.component,
+            repository_filename="test-update.png",
+        )[0].image.size
+
+        copyfile(TEST_SCREENSHOT, os.path.join(repository.path, "test-update.png"))
+        with repository.lock:
+            repository.set_committer("Second Bar", "second@example.net")
+            filenames = ["test-update.png"]
+            repository.commit(
+                "Test commit", "Foo Bar <foo@bar.com>", timezone.now(), filenames
+            )
+            self.component.trigger_post_update(last_revision, skip_push=True)
+
+        # Verify that screenshot has been updated after the signal.
+        self.assertEqual(
+            Screenshot.objects.filter(
+                translation__component=self.component,
+                repository_filename="test-update.png",
+            ).count(),
+            1,
+        )
+        updated_ss_size = Screenshot.objects.filter(
+            translation__component=self.component,
+            repository_filename="test-update.png",
+        )[0].image.size
+        self.assertNotEqual(existing_ss_size, updated_ss_size)
+
+    def test_add_screenshots_from_repo(self):
+        repository = self.component.repository
+        last_revision = repository.last_revision
+
+        copyfile(TEST_SCREENSHOT, os.path.join(repository.path, "test.png"))
+        with repository.lock:
+            repository.set_committer("Second Bar", "second@example.net")
+            filenames = ["test.png"]
+            repository.commit(
+                "Test commit", "Foo Bar <foo@bar.com>", timezone.now(), filenames
+            )
+            self.component.trigger_post_update(last_revision, skip_push=True)
+
+        # Verify that screenshot has been added after the signal.
+        self.assertEqual(
+            Screenshot.objects.filter(
+                translation__component=self.component,
+                repository_filename="test.png",
+            ).count(),
+            1,
+        )

@@ -1,21 +1,8 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+from __future__ import annotations
 
 from django.db import transaction
 
@@ -26,16 +13,21 @@ from weblate.utils.state import STATE_TRANSLATED
 
 
 @app.task(trail=False)
-def import_memory(project_id):
+def import_memory(project_id: int, component_id: int | None = None):
     from weblate.trans.models import Project, Unit
 
     project = Project.objects.get(pk=project_id)
 
-    for component in project.component_set.iterator():
+    components = project.component_set.all()
+    if component_id:
+        components = components.filter(id=component_id)
+
+    for component in components.iterator():
+        component.log_info("updating translation memory")
         with transaction.atomic():
             units = Unit.objects.filter(
                 translation__component=component, state__gte=STATE_TRANSLATED
-            )
+            ).exclude(target="")
             if not component.intermediate:
                 units = units.exclude(
                     translation__language_id=component.source_language_id
@@ -50,7 +42,13 @@ def handle_unit_translation_change(unit_id, user_id=None):
     from weblate.trans.models import Unit
 
     user = None if user_id is None else User.objects.get(pk=user_id)
-    unit = Unit.objects.get(pk=unit_id)
+    unit = Unit.objects.select_related(
+        "translation",
+        "translation__language",
+        "translation__component",
+        "translation__component__source_language",
+        "translation__component__project",
+    ).get(pk=unit_id)
     update_memory(user, unit)
 
 
@@ -92,15 +90,19 @@ def update_memory(user, unit, component=None, project=None):
         ):
             add_user = False
 
+    to_create = []
+
     if add_project:
-        Memory.objects.create(
-            user=None, project=project, from_file=False, shared=False, **params
+        to_create.append(
+            Memory(user=None, project=project, from_file=False, shared=False, **params)
         )
     if add_shared:
-        Memory.objects.create(
-            user=None, project=None, from_file=False, shared=True, **params
+        to_create.append(
+            Memory(user=None, project=None, from_file=False, shared=True, **params)
         )
     if add_user:
-        Memory.objects.create(
-            user=user, project=None, from_file=False, shared=False, **params
+        to_create.append(
+            Memory(user=user, project=None, from_file=False, shared=False, **params)
         )
+    if to_create:
+        Memory.objects.bulk_create(to_create)

@@ -1,26 +1,13 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
+from __future__ import annotations
+
+import copy
 import os.path
 import shutil
 import tempfile
-from typing import Dict
 from unittest import SkipTest
 from unittest.mock import patch
 
@@ -28,12 +15,14 @@ import responses
 from django.test import TestCase
 from django.test.utils import override_settings
 from django.utils import timezone
+from responses import matchers
 
 from weblate.trans.models import Component, Project
 from weblate.trans.tests.utils import RepoTestMixin, TempDirMixin
-from weblate.utils.files import remove_tree
-from weblate.vcs.base import RepositoryException
+from weblate.vcs.base import RepositoryError
 from weblate.vcs.git import (
+    BitbucketServerRepository,
+    GiteaRepository,
     GitForcePushRepository,
     GithubRepository,
     GitLabRepository,
@@ -56,7 +45,17 @@ class GitLabFakeRepository(GitLabRepository):
     _version = None
 
 
+class GiteaFakeRepository(GiteaRepository):
+    _is_supported = None
+    _version = None
+
+
 class PagureFakeRepository(PagureRepository):
+    _is_supported = None
+    _version = None
+
+
+class BitbucketServerFakeRepository(BitbucketServerRepository):
     _is_supported = None
     _version = None
 
@@ -87,10 +86,10 @@ class GitNoVersionRepository(GitRepository):
 class RepositoryTest(TestCase):
     def test_not_supported(self):
         self.assertFalse(NonExistingRepository.is_supported())
-        with self.assertRaises(Exception):
+        with self.assertRaises(FileNotFoundError):
             NonExistingRepository.get_version()
         # Test exception caching
-        with self.assertRaises(Exception):
+        with self.assertRaises(FileNotFoundError):
             NonExistingRepository.get_version()
 
     def test_not_supported_version(self):
@@ -131,22 +130,43 @@ class VCSGitTest(TestCase, RepoTestMixin, TempDirMixin):
     def get_remote_repo_url(self):
         return self.format_local_path(getattr(self, f"{self._vcs}_repo_path"))
 
+    def get_fake_component(self):
+        return Component(
+            slug="test",
+            name="Test",
+            project=Project(name="Test", slug="test", pk=-1),
+            pk=-1,
+        )
+
     def clone_repo(self, path):
         return self._class.clone(
             self.get_remote_repo_url(),
             path,
             self._remote_branch,
-            component=Component(
-                slug="test", name="Test", project=Project(name="Test", slug="test")
-            ),
+            component=self.get_fake_component(),
         )
+
+    def test_weblate_repo_init(self):
+        """Test repo workflow as used by Weblate."""
+        with tempfile.TemporaryDirectory() as tempdir:
+            repo = self._class(
+                tempdir, self._remote_branch, component=self.get_fake_component()
+            )
+            with repo.lock:
+                repo.configure_remote(
+                    self.get_remote_repo_url(),
+                    "",
+                    self._remote_branch,
+                )
+                repo.update_remote()
+                repo.configure_branch(self._remote_branch)
+                repo.merge()
 
     def tearDown(self):
         self.remove_temp()
 
     def add_remote_commit(self, conflict=False, rename=False):
-        tempdir = tempfile.mkdtemp()
-        try:
+        with tempfile.TemporaryDirectory() as tempdir:
             repo = self.clone_repo(tempdir)
             self.fixup_repo(repo)
 
@@ -163,10 +183,7 @@ class VCSGitTest(TestCase, RepoTestMixin, TempDirMixin):
                     else:
                         filenames = None
                 else:
-                    if conflict:
-                        filename = "testfile"
-                    else:
-                        filename = "test2"
+                    filename = "testfile" if conflict else "test2"
                     # Create test file
                     with open(os.path.join(tempdir, filename), "w") as handle:
                         handle.write("SECOND TEST FILE\n")
@@ -179,8 +196,6 @@ class VCSGitTest(TestCase, RepoTestMixin, TempDirMixin):
 
                 # Push it
                 repo.push("")
-        finally:
-            remove_tree(tempdir)
 
     def test_clone(self):
         # Verify that VCS directory exists
@@ -238,6 +253,10 @@ class VCSGitTest(TestCase, RepoTestMixin, TempDirMixin):
         self.add_remote_commit()
         self.test_merge()
 
+    def test_merge_remote_no_ff(self):
+        self.add_remote_commit()
+        self.test_merge(no_ff=True)
+
     def test_rebase_remote(self):
         self.add_remote_commit()
         self.test_rebase()
@@ -255,33 +274,31 @@ class VCSGitTest(TestCase, RepoTestMixin, TempDirMixin):
     def test_merge_conflict(self):
         self.add_remote_commit(conflict=True)
         self.test_commit()
-        with self.assertRaises(RepositoryException):
+        with self.assertRaises(RepositoryError):
             self.test_merge()
 
     def test_rebase_conflict(self):
         self.add_remote_commit(conflict=True)
         self.test_commit()
-        with self.assertRaises(RepositoryException):
+        with self.assertRaises(RepositoryError):
             self.test_rebase()
 
     def test_upstream_changes(self):
         self.add_remote_commit()
         with self.repo.lock:
             self.repo.update_remote()
-        self.assertEqual(["test2"], self.repo.list_upstream_changed_files())
+        self.assertEqual(["test2"], self.repo.get_changed_files())
 
     def test_upstream_changes_rename(self):
         self.add_remote_commit(rename=True)
         with self.repo.lock:
             self.repo.update_remote()
-        self.assertEqual(
-            ["README.md", "READ ME.md"], self.repo.list_upstream_changed_files()
-        )
+        self.assertEqual(["README.md", "READ ME.md"], self.repo.get_changed_files())
 
-    def test_merge(self):
+    def test_merge(self, **kwargs):
         self.test_update_remote()
         with self.repo.lock:
-            self.repo.merge()
+            self.repo.merge(**kwargs)
 
     def test_rebase(self):
         self.test_update_remote()
@@ -302,19 +319,19 @@ class VCSGitTest(TestCase, RepoTestMixin, TempDirMixin):
         self.assertFalse(self.repo.needs_commit(["dummy"]))
 
     def check_valid_info(self, info):
-        self.assertTrue("summary" in info)
+        self.assertIn("summary", info)
         self.assertNotEqual(info["summary"], "")
-        self.assertTrue("author" in info)
+        self.assertIn("author", info)
         self.assertNotEqual(info["author"], "")
-        self.assertTrue("authordate" in info)
+        self.assertIn("authordate", info)
         self.assertNotEqual(info["authordate"], "")
-        self.assertTrue("commit" in info)
+        self.assertIn("commit", info)
         self.assertNotEqual(info["commit"], "")
-        self.assertTrue("commitdate" in info)
+        self.assertIn("commitdate", info)
         self.assertNotEqual(info["commitdate"], "")
-        self.assertTrue("revision" in info)
+        self.assertIn("revision", info)
         self.assertNotEqual(info["revision"], "")
-        self.assertTrue("shortrevision" in info)
+        self.assertIn("shortrevision", info)
         self.assertNotEqual(info["shortrevision"], "")
 
     def test_revision_info(self):
@@ -438,7 +455,7 @@ class VCSGitTest(TestCase, RepoTestMixin, TempDirMixin):
         with self.repo.lock:
             if self._sets_push:
                 self.repo.configure_remote("pullurl", "", "branch")
-                with self.assertRaises(RepositoryException):
+                with self.assertRaises(RepositoryError):
                     self.repo.get_config("remote.origin.pushURL")
                 self.repo.configure_remote("pullurl", "push", "branch")
                 self.assertEqual(self.repo.get_config("remote.origin.pushURL"), "push")
@@ -449,7 +466,7 @@ class VCSGitTest(TestCase, RepoTestMixin, TempDirMixin):
                 # Try to remove it
                 self.repo.configure_remote("pullurl", None, "branch")
 
-                with self.assertRaises(RepositoryException):
+                with self.assertRaises(RepositoryError):
                     self.repo.get_config("remote.origin.pushURL")
 
     def test_configure_branch(self):
@@ -457,7 +474,7 @@ class VCSGitTest(TestCase, RepoTestMixin, TempDirMixin):
         with self.repo.lock:
             self.repo.configure_branch(self.repo.get_remote_branch(self.tempdir))
 
-            with self.assertRaises(RepositoryException):
+            with self.assertRaises(RepositoryError):
                 self.repo.configure_branch("branch")
 
     def test_get_file(self):
@@ -497,14 +514,171 @@ class VCSGitUpstreamTest(VCSGitTest):
             self._class = backup
 
 
-@override_settings(GITHUB_USERNAME="test", GITHUB_TOKEN="token")
+@override_settings(
+    GITEA_CREDENTIALS={"try.gitea.io": {"username": "test", "token": "token"}}
+)
+class VCSGiteaTest(VCSGitUpstreamTest):
+    _class = GiteaFakeRepository
+    _vcs = "git"
+    _sets_push = False
+
+    def mock_responses(self, pr_response, pr_status=200):
+        """
+        Mock response helper function.
+
+        This function will mock request responses for both fork and PRs
+        """
+        responses.add(
+            responses.POST,
+            "https://try.gitea.io/api/v1/repos/WeblateOrg/test/forks",
+            json={"ssh_url": "git@github.com:test/test.git"},
+            match=[matchers.header_matcher({"Content-Type": "application/json"})],
+        )
+        responses.add(
+            responses.POST,
+            "https://try.gitea.io/api/v1/repos/WeblateOrg/test/pulls",
+            json=pr_response,
+            status=pr_status,
+            match=[matchers.header_matcher({"Content-Type": "application/json"})],
+        )
+
+    def test_api_url_try_gitea(self):
+        self.repo.component.repo = "https://try.gitea.io/WeblateOrg/test.git"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            "https://try.gitea.io/api/v1/repos/WeblateOrg/test",
+        )
+        self.repo.component.repo = "http://try.gitea.io/WeblateOrg/test.git"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            "http://try.gitea.io/api/v1/repos/WeblateOrg/test",
+        )
+        self.repo.component.repo = "git@try.gitea.io:WeblateOrg/test.git"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            "https://try.gitea.io/api/v1/repos/WeblateOrg/test",
+        )
+        self.repo.component.repo = "https://try.gitea.io/WeblateOrg/test"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            "https://try.gitea.io/api/v1/repos/WeblateOrg/test",
+        )
+        self.repo.component.repo = "https://try.gitea.io/WeblateOrg/test/"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            "https://try.gitea.io/api/v1/repos/WeblateOrg/test",
+        )
+        self.repo.component.repo = "git@try.gitea.io:WeblateOrg/test.git"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            "https://try.gitea.io/api/v1/repos/WeblateOrg/test",
+        )
+        self.repo.component.repo = "try.gitea.io:WeblateOrg/test.git"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            "https://try.gitea.io/api/v1/repos/WeblateOrg/test",
+        )
+        self.repo.component.repo = "try.gitea.io:WeblateOrg/test.github.io"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            "https://try.gitea.io/api/v1/repos/WeblateOrg/test.github.io",
+        )
+        with override_settings(
+            GITEA_CREDENTIALS={
+                "try.gitea.io": {"username": "test", "token": "token", "scheme": "http"}
+            }
+        ):
+            self.repo.component.repo = "git@try.gitea.io:WeblateOrg/test.git"
+            self.assertEqual(
+                self.repo.get_credentials()["url"],
+                "http://try.gitea.io/api/v1/repos/WeblateOrg/test",
+            )
+
+        with override_settings(
+            GITEA_CREDENTIALS={
+                "try.gitea.io": {
+                    "username": "test",
+                    "token": "token",
+                    "scheme": "https",
+                }
+            }
+        ):
+            self.repo.component.repo = "http://try.gitea.io/WeblateOrg/test/"
+            self.assertEqual(
+                self.repo.get_credentials()["url"],
+                "https://try.gitea.io/api/v1/repos/WeblateOrg/test",
+            )
+
+    @responses.activate
+    def test_push(self, branch=""):
+        self.repo.component.repo = "https://try.gitea.io/WeblateOrg/test.git"
+
+        # Patch push_to_fork() function because we don't want to actually
+        # make a git push request
+        mock_push_to_fork_patcher = patch(
+            "weblate.vcs.git.GitMergeRequestBase.push_to_fork"
+        )
+        mock_push_to_fork = mock_push_to_fork_patcher.start()
+        mock_push_to_fork.return_value = ""
+
+        self.mock_responses(
+            pr_response={"url": "https://try.gitea.io/WeblateOrg/test/pull/1"}
+        )
+        super().test_push(branch)
+        mock_push_to_fork.stop()
+
+    @responses.activate
+    def test_pull_request_error(self, branch=""):
+        self.repo.component.repo = "https://try.gitea.io/WeblateOrg/test.git"
+
+        # Patch push_to_fork() function because we don't want to actually
+        # make a git push request
+        mock_push_to_fork_patcher = patch(
+            "weblate.vcs.git.GitMergeRequestBase.push_to_fork"
+        )
+        mock_push_to_fork = mock_push_to_fork_patcher.start()
+        mock_push_to_fork.return_value = ""
+
+        # Mock PR to return error
+        self.mock_responses(pr_status=422, pr_response={"message": "Some error"})
+
+        with self.assertRaises(RepositoryError):
+            super().test_push(branch)
+        mock_push_to_fork.stop()
+
+    @responses.activate
+    def test_pull_request_exists(self, branch=""):
+        self.repo.component.repo = "https://try.gitea.io/WeblateOrg/test.git"
+
+        # Patch push_to_fork() function because we don't want to actually
+        # make a git push request
+        mock_push_to_fork_patcher = patch(
+            "weblate.vcs.git.GitMergeRequestBase.push_to_fork"
+        )
+        mock_push_to_fork = mock_push_to_fork_patcher.start()
+        mock_push_to_fork.return_value = ""
+
+        # Check that it doesn't raise error when pull request already exists
+        self.mock_responses(
+            pr_status=422,
+            pr_response={"message": "pull request already exists for these targets"},
+        )
+
+        super().test_push(branch)
+        mock_push_to_fork.stop()
+
+
+@override_settings(
+    GITHUB_CREDENTIALS={"api.github.com": {"username": "test", "token": "token"}}
+)
 class VCSGitHubTest(VCSGitUpstreamTest):
     _class = GithubFakeRepository
     _vcs = "git"
     _sets_push = False
 
     def mock_responses(self, pr_response, pr_status=200):
-        """Mock response helper function.
+        """
+        Mock response helper function.
 
         This function will mock request responses for both fork and PRs
         """
@@ -520,26 +694,81 @@ class VCSGitHubTest(VCSGitUpstreamTest):
             status=pr_status,
         )
 
-    def test_api_url(self):
+    def test_api_url_github_com(self):
         self.repo.component.repo = "https://github.com/WeblateOrg/test.git"
         self.assertEqual(
-            self.repo.get_api_url()[0], "https://api.github.com/repos/WeblateOrg/test"
+            self.repo.get_credentials()["url"],
+            "https://api.github.com/repos/WeblateOrg/test",
+        )
+        self.repo.component.repo = "http://github.com/WeblateOrg/test.git"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            "http://api.github.com/repos/WeblateOrg/test",
         )
         self.repo.component.repo = "https://github.com/WeblateOrg/test"
         self.assertEqual(
-            self.repo.get_api_url()[0], "https://api.github.com/repos/WeblateOrg/test"
+            self.repo.get_credentials()["url"],
+            "https://api.github.com/repos/WeblateOrg/test",
         )
         self.repo.component.repo = "https://github.com/WeblateOrg/test/"
         self.assertEqual(
-            self.repo.get_api_url()[0], "https://api.github.com/repos/WeblateOrg/test"
+            self.repo.get_credentials()["url"],
+            "https://api.github.com/repos/WeblateOrg/test",
         )
         self.repo.component.repo = "git@github.com:WeblateOrg/test.git"
         self.assertEqual(
-            self.repo.get_api_url()[0], "https://api.github.com/repos/WeblateOrg/test"
+            self.repo.get_credentials()["url"],
+            "https://api.github.com/repos/WeblateOrg/test",
         )
         self.repo.component.repo = "github.com:WeblateOrg/test.git"
         self.assertEqual(
-            self.repo.get_api_url()[0], "https://api.github.com/repos/WeblateOrg/test"
+            self.repo.get_credentials()["url"],
+            "https://api.github.com/repos/WeblateOrg/test",
+        )
+        self.repo.component.repo = "github.com:WeblateOrg/test.github.io"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            "https://api.github.com/repos/WeblateOrg/test.github.io",
+        )
+
+    @override_settings(
+        GITHUB_CREDENTIALS={
+            "self-hosted-ghes.com": {
+                "username": "test",
+                "token": "token",
+            }
+        }
+    )
+    def test_api_url_ghes(self):
+        self.repo.component.repo = "https://self-hosted-ghes.com/WeblateOrg/test.git"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            "https://self-hosted-ghes.com/api/v3/repos/WeblateOrg/test",
+        )
+        self.repo.component.repo = "https://self-hosted-ghes.com/WeblateOrg/test"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            "https://self-hosted-ghes.com/api/v3/repos/WeblateOrg/test",
+        )
+        self.repo.component.repo = "https://self-hosted-ghes.com/WeblateOrg/test/"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            "https://self-hosted-ghes.com/api/v3/repos/WeblateOrg/test",
+        )
+        self.repo.component.repo = "git@self-hosted-ghes.com:WeblateOrg/test.git"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            "https://self-hosted-ghes.com/api/v3/repos/WeblateOrg/test",
+        )
+        self.repo.component.repo = "self-hosted-ghes.com:WeblateOrg/test.git"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            "https://self-hosted-ghes.com/api/v3/repos/WeblateOrg/test",
+        )
+        self.repo.component.repo = "self-hosted-ghes.com:WeblateOrg/test.github.io"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            "https://self-hosted-ghes.com/api/v3/repos/WeblateOrg/test.github.io",
         )
 
     @responses.activate
@@ -575,7 +804,7 @@ class VCSGitHubTest(VCSGitUpstreamTest):
         # Mock PR to return error
         self.mock_responses(pr_status=422, pr_response={"message": "Some error"})
 
-        with self.assertRaises(RepositoryException):
+        with self.assertRaises(RepositoryError):
             super().test_push(branch)
         mock_push_to_fork.stop()
 
@@ -600,8 +829,22 @@ class VCSGitHubTest(VCSGitUpstreamTest):
         super().test_push(branch)
         mock_push_to_fork.stop()
 
+    def test_merge_message(self):
+        repo = self.repo
+        component = repo.component
+        component.pull_message = "Test message\n\nBody"
+        self.assertEqual(repo.get_merge_message(), ("Test message", "Body"))
+        component.pull_message = "Test message\r\n\r\nBody"
+        self.assertEqual(repo.get_merge_message(), ("Test message", "Body"))
+        component.pull_message = "Test message"
+        self.assertEqual(repo.get_merge_message(), ("Test message", ""))
+        component.pull_message = "\nTest message\n\n\nBody"
+        self.assertEqual(repo.get_merge_message(), ("Test message", "Body"))
 
-@override_settings(GITLAB_USERNAME="test", GITLAB_TOKEN="token")
+
+@override_settings(
+    GITLAB_CREDENTIALS={"gitlab.com": {"username": "test", "token": "token"}}
+)
 class VCSGitLabTest(VCSGitUpstreamTest):
     _class = GitLabFakeRepository
     _vcs = "git"
@@ -652,7 +895,7 @@ class VCSGitLabTest(VCSGitUpstreamTest):
         responses.add(
             responses.GET,
             "https://gitlab.com/api/v4/projects/WeblateOrg%2Ftest/forks?owned=True",
-            json=[] if not get_forks else get_forks,
+            json=get_forks if get_forks else [],
         )
 
     def mock_pr_responses(self, pr_response, pr_status):
@@ -698,7 +941,8 @@ class VCSGitLabTest(VCSGitUpstreamTest):
     def mock_responses(
         self, pr_response, pr_status=200, get_forks=None, repo_state: int = 409
     ):
-        """Mock response helper function.
+        """
+        Mock response helper function.
 
         This function will mock request responses for both fork and PRs,
         GET request to get all forks and target project id, and PUT request
@@ -712,33 +956,61 @@ class VCSGitLabTest(VCSGitUpstreamTest):
     def test_api_url(self):
         self.repo.component.repo = "https://gitlab.com/WeblateOrg/test.git"
         self.assertEqual(
-            self.repo.get_api_url()[0],
+            self.repo.get_credentials()["url"],
             "https://gitlab.com/api/v4/projects/WeblateOrg%2Ftest",
+        )
+        self.repo.component.repo = "http://gitlab.com/WeblateOrg/test.git"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            "http://gitlab.com/api/v4/projects/WeblateOrg%2Ftest",
         )
         self.repo.component.repo = "https://user:pass@gitlab.com/WeblateOrg/test.git"
         self.assertEqual(
-            self.repo.get_api_url()[0],
+            self.repo.get_credentials()["url"],
             "https://gitlab.com/api/v4/projects/WeblateOrg%2Ftest",
         )
         self.repo.component.repo = "git@gitlab.com:WeblateOrg/test.git"
         self.assertEqual(
-            self.repo.get_api_url()[0],
+            self.repo.get_credentials()["url"],
             "https://gitlab.com/api/v4/projects/WeblateOrg%2Ftest",
         )
+
+    @override_settings(
+        GITLAB_CREDENTIALS={
+            "gitlab.example.com": {"username": "test", "token": "token"}
+        }
+    )
+    def test_api_url_self_hosted(self):
         self.repo.component.repo = "git@gitlab.example.com:WeblateOrg/test.git"
         self.assertEqual(
-            self.repo.get_api_url()[0],
+            self.repo.get_credentials()["url"],
             "https://gitlab.example.com/api/v4/projects/WeblateOrg%2Ftest",
         )
         self.repo.component.repo = "git@gitlab.example.com:WeblateOrg/test.git"
         self.assertEqual(
-            self.repo.get_api_url()[0],
-            "https://gitlab.example.com/api/v4/projects/WeblateOrg%2Ftest",
+            self.repo.get_credentials(),
+            {
+                "url": "https://gitlab.example.com/api/v4/projects/WeblateOrg%2Ftest",
+                "owner": "WeblateOrg",
+                "slug": "test",
+                "hostname": "gitlab.example.com",
+                "scheme": "https",
+                "username": "test",
+                "token": "token",
+            },
         )
         self.repo.component.repo = "git@gitlab.example.com:foo/bar/test.git"
         self.assertEqual(
-            self.repo.get_api_url()[0],
-            "https://gitlab.example.com/api/v4/projects/foo%2Fbar%2Ftest",
+            self.repo.get_credentials(),
+            {
+                "url": "https://gitlab.example.com/api/v4/projects/foo%2Fbar%2Ftest",
+                "owner": "foo",
+                "slug": "bar/test",
+                "hostname": "gitlab.example.com",
+                "scheme": "https",
+                "username": "test",
+                "token": "token",
+            },
         )
 
     @responses.activate
@@ -844,7 +1116,7 @@ class VCSGitLabTest(VCSGitUpstreamTest):
             },
             repo_state=403,
         )
-        with self.assertRaises(RepositoryException):
+        with self.assertRaises(RepositoryError):
             super().test_push(branch)
         mock_push_to_fork.stop()
 
@@ -869,7 +1141,7 @@ class VCSGitLabTest(VCSGitUpstreamTest):
 
         # Mock post, put and get requests for both the fork and PR requests sent.
         self.mock_responses(pr_status=422, pr_response={"message": "Some error"})
-        with self.assertRaises(RepositoryException):
+        with self.assertRaises(RepositoryError):
             super().test_push(branch)
         mock_push_to_fork.stop()
 
@@ -894,13 +1166,15 @@ class VCSGitLabTest(VCSGitUpstreamTest):
         mock_push_to_fork.stop()
 
 
-@override_settings(PAGURE_USERNAME="test", PAGURE_TOKEN="token")
+@override_settings(
+    PAGURE_CREDENTIALS={"pagure.io": {"username": "test", "token": "token"}}
+)
 class VCSPagureTest(VCSGitUpstreamTest):
     _class = PagureFakeRepository
     _vcs = "git"
     _sets_push = False
 
-    def mock_responses(self, pr_response: Dict, existing_response: Dict):
+    def mock_responses(self, pr_response: dict, existing_response: dict):
         """Mock response helper function."""
         responses.add(
             responses.POST,
@@ -916,7 +1190,7 @@ class VCSPagureTest(VCSGitUpstreamTest):
         )
         responses.add(
             responses.GET,
-            "https://pagure.io/api/0/testrepo/pull-request",
+            "https://pagure.io/api/0/testrepo/pull-requests",
             json=existing_response,
             status=200,
         )
@@ -1018,7 +1292,7 @@ class VCSGerritTest(VCSGitUpstreamTest):
         hook = os.path.join(repo.path, ".git", "hooks", "commit-msg")
         with open(hook, "w") as handle:
             handle.write("#!/bin/sh\nexit 0\n")
-        os.chmod(hook, 0o755)
+        os.chmod(hook, 0o755)  # noqa: S103, nosec
 
 
 class VCSSubversionTest(VCSGitTest):
@@ -1040,9 +1314,8 @@ class VCSSubversionTest(VCSGitTest):
         self.assertIn("nothing to commit", status)
 
     def test_configure_remote(self):
-        with self.repo.lock:
-            with self.assertRaises(RepositoryException):
-                self.repo.configure_remote("pullurl", "pushurl", "branch")
+        with self.repo.lock, self.assertRaises(RepositoryError):
+            self.repo.configure_remote("pullurl", "pushurl", "branch")
         self.verify_pull_url()
 
     def test_configure_remote_no_push(self):
@@ -1052,7 +1325,7 @@ class VCSSubversionTest(VCSGitTest):
                 self.format_local_path(self.subversion_repo_path),
                 "main",
             )
-            with self.assertRaises(RepositoryException):
+            with self.assertRaises(RepositoryError):
                 self.repo.configure_remote("pullurl", "", "branch")
         self.verify_pull_url()
 
@@ -1159,3 +1432,336 @@ class VCSLocalTest(VCSGitTest):
 
     def test_configure_remote_no_push(self):
         raise SkipTest("Not supported")
+
+
+@override_settings(
+    BITBUCKETSERVER_CREDENTIALS={
+        "api.selfhosted.com": {"username": "test", "token": "token"}
+    }
+)
+class VCSBitbucketServerTest(VCSGitUpstreamTest):
+    _class = BitbucketServerFakeRepository
+    _vcs = "git"
+    _sets_push = False
+
+    _bbhost = "https://api.selfhosted.com"
+    _bb_api_error_stub = {"errors": [{"context": "<string>", "message": "<string>"}]}
+    _bb_fork_stub = {
+        "id": "222",
+        "slug": "bb_fork",
+        "project": {"key": "bb_fork_pk"},
+        "links": {
+            "clone": [
+                {
+                    "name": "ssh",
+                    "href": "https://api.selfhosted.com/bb_fork_pk/bb_fork.git",
+                }
+            ]
+        },
+    }
+
+    def mock_fork_response(self, status: int):
+        if status == 201:
+            body = self._bb_fork_stub
+        elif status == 409:
+            body = {
+                "errors": [
+                    {
+                        "context": "name",
+                        "message": "This repository URL is already taken.",
+                    }
+                ]
+            }
+        else:
+            body = self._bb_api_error_stub
+
+        responses.add(
+            responses.POST,
+            f"{self._bbhost}/rest/api/1.0/projects/bb_pk/repos/bb_repo",
+            json=body,
+            status=status,
+        )
+
+    def mock_repo_response(self, status: int):
+        body = {"id": 111} if status == 200 else self._bb_api_error_stub
+
+        responses.add(  # get remote repo id
+            responses.GET,
+            f"{self._bbhost}/rest/api/1.0/projects/bb_pk/repos/bb_repo",
+            json=body,
+            status=status,
+        )
+
+    def mock_repo_forks_response(self, status: int, pages: int = 0):
+        path = "rest/api/1.0/projects/bb_pk/repos/bb_repo/forks"
+        if status == 200:
+            origin = copy.deepcopy(self._bb_fork_stub)
+            origin["slug"] = "bb_repo"
+            origin["project"]["key"] = "bb_pk"
+            fork = copy.deepcopy(self._bb_fork_stub)
+            fork["origin"] = origin
+            body = {"values": [fork], "isLastPage": True}
+        elif status == 204:
+            body = {"values": [], "isLastPage": True}
+        else:
+            body = self._bb_api_error_stub
+
+        if pages > 0:  # Add paginated irrelevant responses
+            while pages > 0:
+                fork_stub = copy.deepcopy(self._bb_fork_stub)
+                fork_stub["slug"] = "not_the_slug_youre_looking_for"
+                page_body = {"values": [{"origin": fork_stub}], "isLastPage": False}
+
+                params = f"limit=1000&start={pages}"
+                responses.add(  # get remote repo id
+                    responses.GET,
+                    f"{self._bbhost}/{path}?{params}",
+                    json=page_body,
+                    status=status,
+                )
+                pages -= 1
+
+        params = f"limit=1000&start={pages}"
+        responses.add(  # add actual relevant response
+            responses.GET,
+            f"{self._bbhost}/{path}?{params}",
+            json=body,
+            status=status,
+        )
+
+    def mock_reviewer_reponse(self, status, branch=""):
+        path = "rest/default-reviewers/1.0/projects/bb_pk/repos/bb_repo/reviewers"
+        if status == 200:
+            body = {"name": "user name", "id": 123}
+        elif status == 400:
+            body = self._bb_api_error_stub
+        else:
+            body = []
+
+        if not branch:
+            branch = "weblate-test-test"
+        params = "targetRepoId=111&sourceRepoId=222"
+        params += f"&targetRefId=main&sourceRefId={branch}"
+        responses.add(
+            responses.GET,
+            f"{self._bbhost}/{path}?{params}",
+            json=body,
+            status=status,
+        )
+
+    def mock_pr_response(self, status):
+        if status == 201:
+            body = {"id": "333"}
+        elif status == 409:
+            pr_exist_message = (
+                "Only one pull request may be open "
+                "for a given source and target branch"
+            )
+            body = {"errors": [{"context": "<string>", "message": pr_exist_message}]}
+        else:
+            body = self._bb_api_error_stub
+
+        responses.add(
+            responses.POST,
+            f"{self._bbhost}/rest/api/1.0/projects/bb_pk/repos/bb_repo/pull-requests",
+            json=body,
+            status=status,
+        )
+
+    def test_api_url(self):
+        self.repo.component.repo = f"{self._bbhost}/bb_pk/bb_repo.git"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            f"{self._bbhost}/rest/api/1.0/projects/bb_pk/repos/bb_repo",
+        )
+        self.repo.component.repo = f"{self._bbhost}/bb_pk/bb_repo"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            f"{self._bbhost}/rest/api/1.0/projects/bb_pk/repos/bb_repo",
+        )
+        self.repo.component.repo = f"{self._bbhost}/bb_pk/bb_repo/"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            f"{self._bbhost}/rest/api/1.0/projects/bb_pk/repos/bb_repo",
+        )
+        self.repo.component.repo = "git@api.selfhosted.com:bb_pk/bb_repo.git"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            f"{self._bbhost}/rest/api/1.0/projects/bb_pk/repos/bb_repo",
+        )
+        self.repo.component.repo = "api.selfhosted.com:bb_pk/bb_repo.git"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            f"{self._bbhost}/rest/api/1.0/projects/bb_pk/repos/bb_repo",
+        )
+        self.repo.component.repo = "api.selfhosted.com:bb_pk/bb_repo.com"
+        self.assertEqual(
+            self.repo.get_credentials()["url"],
+            f"{self._bbhost}/rest/api/1.0/projects/bb_pk/repos/bb_repo.com",
+        )
+
+    def test_get_headers(self):
+        stub_credentials = {"token": "bbs_token"}
+        self.assertEqual(
+            self.repo.get_headers(stub_credentials)["Authorization"], "Bearer bbs_token"
+        )
+
+    @responses.activate
+    def test_default_reviewers_repo_error(self):
+        self.repo.component.repo = f"{self._bbhost}/bb_pk/bb_repo.git"
+
+        # Patch push_to_fork() function because we don't want to actually
+        # make a git push request
+        mock_push_to_fork_patcher = patch(
+            "weblate.vcs.git.GitMergeRequestBase.push_to_fork"
+        )
+        mock_push_to_fork = mock_push_to_fork_patcher.start()
+        mock_push_to_fork.return_value = ""
+
+        self.mock_repo_response(400)  # get target repo info
+        credentials = {
+            "url": f"{self._bbhost}/rest/api/1.0/projects/bb_pk/repos/bb_repo",
+            "token": "bbs_token",
+        }
+        self.assertEqual(
+            self.repo.get_default_reviewers(credentials, "test-branch"), []
+        )
+        mock_push_to_fork.stop()
+
+    @responses.activate
+    def test_default_reviewers_error(self):
+        self.repo.component.repo = f"{self._bbhost}/bb_pk/bb_repo.git"
+
+        # Patch push_to_fork() function because we don't want to actually
+        # make a git push request
+        mock_push_to_fork_patcher = patch(
+            "weblate.vcs.git.GitMergeRequestBase.push_to_fork"
+        )
+        mock_push_to_fork = mock_push_to_fork_patcher.start()
+        mock_push_to_fork.return_value = ""
+
+        self.mock_repo_response(200)  # get target repo info
+        self.mock_reviewer_reponse(400)  # get default reviewers
+        self.repo.bb_fork = {"id": "222"}
+        credentials = {
+            "url": f"{self._bbhost}/rest/api/1.0/projects/bb_pk/repos/bb_repo",
+            "token": "bbs_token",
+        }
+        self.assertEqual(
+            self.repo.get_default_reviewers(credentials, "weblate-test-test"), []
+        )
+        mock_push_to_fork.stop()
+
+    @responses.activate
+    def test_push(self, branch=""):
+        self.repo.component.repo = f"{self._bbhost}/bb_pk/bb_repo.git"
+
+        # Patch push_to_fork() function because we don't want to actually
+        # make a git push request
+        mock_push_to_fork_patcher = patch(
+            "weblate.vcs.git.GitMergeRequestBase.push_to_fork"
+        )
+        mock_push_to_fork = mock_push_to_fork_patcher.start()
+        mock_push_to_fork.return_value = ""
+
+        self.mock_fork_response(201)  # fork created
+        self.mock_repo_response(200)  # get target repo info
+        self.mock_reviewer_reponse(200, branch)  # get default reviewers
+        self.mock_pr_response(201)  # create pr ok
+        super().test_push(branch)
+        mock_push_to_fork.stop()
+
+    @responses.activate
+    def test_push_with_existing_pr(self, branch=""):
+        self.repo.component.repo = f"{self._bbhost}/bb_pk/bb_repo.git"
+
+        # Patch push_to_fork() function because we don't want to actually
+        # make a git push request
+        mock_push_to_fork_patcher = patch(
+            "weblate.vcs.git.GitMergeRequestBase.push_to_fork"
+        )
+        mock_push_to_fork = mock_push_to_fork_patcher.start()
+        mock_push_to_fork.return_value = ""
+
+        self.mock_fork_response(201)  # fork created
+        self.mock_repo_response(200)  # get target repo info
+        self.mock_reviewer_reponse(200, branch)  # get default reviewers
+        self.mock_pr_response(409)  # create pr error, PR already exists
+        super().test_push(branch)
+        mock_push_to_fork.stop()
+
+    @responses.activate
+    def test_push_pr_error_reponse(self, branch=""):
+        self.repo.component.repo = f"{self._bbhost}/bb_pk/bb_repo.git"
+
+        # Patch push_to_fork() function because we don't want to actually
+        # make a git push request
+        mock_push_to_fork_patcher = patch(
+            "weblate.vcs.git.GitMergeRequestBase.push_to_fork"
+        )
+        mock_push_to_fork = mock_push_to_fork_patcher.start()
+        mock_push_to_fork.return_value = ""
+
+        self.mock_fork_response(201)  # fork created
+        self.mock_repo_response(200)  # get target repo info
+        self.mock_reviewer_reponse(200, branch)  # get default reviewers
+        self.mock_pr_response(401)  # create pr error
+        with self.assertRaises(RepositoryError):
+            super().test_push(branch)
+        mock_push_to_fork.stop()
+
+    @responses.activate
+    def test_push_with_existing_fork(self, branch=""):
+        self.repo.component.repo = f"{self._bbhost}/bb_pk/bb_repo.git"
+
+        # Patch push_to_fork() function because we don't want to actually
+        # make a git push request
+        mock_push_to_fork_patcher = patch(
+            "weblate.vcs.git.GitMergeRequestBase.push_to_fork"
+        )
+        mock_push_to_fork = mock_push_to_fork_patcher.start()
+        mock_push_to_fork.return_value = ""
+
+        self.mock_fork_response(status=409)  # fork already exists
+        self.mock_repo_forks_response(status=200, pages=3)  # simulate pagination
+        self.mock_repo_response(200)  # get target repo info
+        self.mock_reviewer_reponse(200, branch)  # get default reviewers
+        self.mock_pr_response(201)  # create pr ok
+        super().test_push(branch)
+        mock_push_to_fork.stop()
+
+    @responses.activate
+    def test_create_fork_unexpected_fail(self, branch=""):
+        self.repo.component.repo = f"{self._bbhost}/bb_pk/bb_repo.git"
+
+        # Patch push_to_fork() function because we don't want to actually
+        # make a git push request
+        mock_push_to_fork_patcher = patch(
+            "weblate.vcs.git.GitMergeRequestBase.push_to_fork"
+        )
+        mock_push_to_fork = mock_push_to_fork_patcher.start()
+        mock_push_to_fork.return_value = ""
+
+        self.mock_fork_response(status=401)
+        with self.assertRaises(RepositoryError):
+            super().test_push(branch)
+        mock_push_to_fork.stop()
+
+    @responses.activate
+    def test_existing_fork_not_found(self, branch=""):
+        self.repo.component.repo = f"{self._bbhost}/bb_pk/bb_repo.git"
+
+        # Patch push_to_fork() function because we don't want to actually
+        # make a git push request
+        mock_push_to_fork_patcher = patch(
+            "weblate.vcs.git.GitMergeRequestBase.push_to_fork"
+        )
+        mock_push_to_fork = mock_push_to_fork_patcher.start()
+        mock_push_to_fork.return_value = ""
+
+        self.mock_fork_response(status=409)  # fork already exists
+        # can't find fork that should exist
+        self.mock_repo_forks_response(status=204, pages=3)
+        with self.assertRaises(RepositoryError):
+            super().test_push(branch)
+        mock_push_to_fork.stop()

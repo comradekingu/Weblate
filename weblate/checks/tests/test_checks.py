@@ -1,21 +1,6 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Helper for quality checks tests."""
 
@@ -56,6 +41,7 @@ class MockComponent:
         self.project = MockProject()
         self.name = "MockComponent"
         self.file_format = "auto"
+        self.is_multivalue = False
 
 
 class MockTranslation:
@@ -66,6 +52,7 @@ class MockTranslation:
         self.component = MockComponent()
         self.is_template = False
         self.is_source = False
+        self.plural = self.language.plural
 
     @staticmethod
     def log_debug(text, *args):
@@ -75,27 +62,53 @@ class MockTranslation:
 class MockUnit:
     """Mock unit object."""
 
-    def __init__(self, id_hash=None, flags="", code="cs", source="", note=""):
+    def __init__(
+        self,
+        id_hash=None,
+        flags="",
+        code="cs",
+        source="",
+        note="",
+        is_source=None,
+        target="",
+        context="",
+    ):
         if id_hash is None:
-            id_hash = random.randint(0, 65536)
+            id_hash = random.randint(0, 65536)  # noqa: S311
         self.id_hash = id_hash
         self.flags = Flags(flags)
         self.translation = MockTranslation(code)
-        self.source = source
+        if isinstance(source, str) or source is None:
+            self.source = source
+            self.sources = [source]
+        else:
+            self.source = source[0]
+            self.sources = source
         self.fuzzy = False
         self.translated = True
         self.readonly = False
         self.state = 20
+        if isinstance(target, str):
+            self.target = target
+            self.targets = [target]
+        else:
+            self.target = target[0]
+            self.targets = target
         self.note = note
         self.check_cache = {}
-        self.machinery = {"best": -1}
+        self.machinery = None
+        self.is_source = is_source
+        self.context = context
 
     @property
     def all_flags(self):
         return self.flags
 
     def get_source_plurals(self):
-        return [self.source]
+        return self.sources
+
+    def get_target_plurals(self):
+        return self.targets
 
     @property
     def source_string(self):
@@ -130,15 +143,26 @@ class CheckTestCase(SimpleTestCase):
             lang = self.default_lang
         if not data or self.check is None:
             return
+        params = '"{}"/"{}" ({})'.format(*data)
+
+        unit = MockUnit(None, data[2], lang, source=data[0])
+
+        # Verify skip logic
+        should_skip = self.check.should_skip(unit)
+        if expected:
+            self.assertFalse(should_skip, msg=f"Check should not skip for {params}")
+        elif should_skip:
+            # There is nothing to test here
+            return
+
+        # Verify check logic
         result = self.check.check_single(
-            data[0], data[1], MockUnit(None, data[2], lang, source=data[0])
+            data[0][0] if isinstance(data[0], list) else data[0], data[1], unit
         )
         if expected:
-            self.assertTrue(
-                result, 'Check did not fire for "{}"/"{}" ({})'.format(*data)
-            )
+            self.assertTrue(result, msg=f"Check did not fire for {params}")
         else:
-            self.assertFalse(result, 'Check did fire for "{}"/"{}" ({})'.format(*data))
+            self.assertFalse(result, msg=f"Check did fire for {params}")
 
     def test_single_good_matching(self):
         self.do_test(False, self.test_good_matching)
@@ -331,6 +355,6 @@ class CheckTestCase(SimpleTestCase):
             source=self.test_highlight[1],
         )
         self.assertEqual(
-            self.check.check_highlight(self.test_highlight[1], unit),
+            list(self.check.check_highlight(self.test_highlight[1], unit)),
             self.test_highlight[2],
         )

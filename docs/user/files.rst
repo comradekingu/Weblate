@@ -27,23 +27,29 @@ localization formats. The converted files will be enriched with data provided
 in Weblate; such as additional context, comments or flags. Several file formats
 are available via the :guilabel:`Files` ↓ :guilabel:`Customize download` menu:
 
-* gettext PO
-* XLIFF with gettext extensions
-* XLIFF 1.1
-* TermBase eXchange
-* Translation Memory eXchange
-* gettext MO
-* CSV
-* Excel Open XML
-* JSON
-* Android String Resource
-* iOS strings
+* gettext PO (``po``)
+* XLIFF with gettext extensions (``xliff``)
+* XLIFF 1.1 (``xliff11``)
+* TermBase eXchange (``tbx``)
+* Translation Memory eXchange (``tmx``)
+* gettext MO (only available when translation is using gettext PO) (``mo``)
+* CSV (``csv``)
+* Excel Open XML (``xlsx``)
+* JSON (only available for monolingual translations) (``json``)
+* Android String Resource (only available for monolingual translations) (``aresource``)
+* iOS strings (only available for monolingual translations) (``strings``)
 
-.. image:: /images/file-download.png
+.. hint::
+
+   The content available in the converted files differs based on file format
+   features, you can find overview in :ref:`fmt_capabs`.
+
+.. image:: /screenshots/file-download.webp
 
 .. seealso::
 
-   :http:get:`/api/translations/(string:project)/(string:component)/(string:language)/file/`
+   :http:get:`/api/translations/(string:project)/(string:component)/(string:language)/file/`,
+   :setting:`WEBLATE_EXPORTERS`
 
 .. _upload:
 
@@ -53,7 +59,7 @@ Uploading translations
 When you have made your changes, use :guilabel:`Upload translation`
 in the :guilabel:`Files` menu.
 
-.. image:: /images/file-upload.png
+.. image:: /screenshots/file-upload.webp
 
 .. _upload-file:
 
@@ -66,10 +72,8 @@ features might not be translated properly.
 
 .. seealso::
 
-   :ref:`formats`
-
-The uploaded file is merged to update the translation, overwriting existing
-entries by default (this can be turned off or on in the upload dialog).
+   :ref:`formats`,
+   :doc:`/user/files`
 
 .. _upload-method:
 
@@ -79,14 +83,20 @@ Import methods
 These are the choices presented when uploading translation files:
 
 Add as translation (``translate``)
-    Imported translations are added as translations. This is the most common usecase, and
+    Imported strings are added as translations to existing strings. This is the most common usecase, and
     the default behavior.
+
+    Only translations are used from the uploaded file and no additional content.
 Add as suggestion (``suggest``)
-    Imported translations are added as suggestions, do this when you want to have your
+    Imported strings are added as suggestions, do this when you want to have your
     uploaded strings reviewed.
+
+    Only translations are used from the uploaded file and no additional content.
 Add as translation needing edit (``fuzzy``)
-    Imported translations are added as translations needing edit. This can be useful
+    Imported strings are added as translations needing edit. This can be useful
     when you want translations to be used, but also reviewed.
+
+    Only translations are used from the uploaded file and no additional content.
 Replace existing translation file (``replace``)
     Existing file is replaced with new content. This can lead to loss of existing
     translations, use with caution.
@@ -102,6 +112,8 @@ Add new strings (``add``)
     upload the file second time with :guilabel:`Add as translation`.
 
     This option is available only with :ref:`component-manage_units` turned on.
+
+    Only source, translation and key (context) are used from the uploaded file.
 
 .. seealso::
 

@@ -9,38 +9,44 @@
 
 {% block content %}
 
-{% trans "Please check your mailbox for the confirmation link." as msg %}
-{% show_message "info" msg %}
+<div class="container">
 
-<div class="panel panel-default">
-  <div class="panel-heading">
-    <h4 class="panel-title">
-      {% if is_reset %}
-        {% trans "Password reset almost complete" %}
-      {% elif is_remove %}
-        {% trans "Account removal almost complete" %}
-      {% else %}
-        {% trans "Registration almost complete" %}
-      {% endif %}
-    </h4>
-  </div>
-  <div class="panel-body">
-
+  <h2>
     {% if is_reset %}
-      <p>{% blocktrans %}If your e-mail address exists in our database, you will receive further password recovery instructions to your inbox.{% endblocktrans %}</p>
-      <p>{% blocktrans %}If the confirmation link expires before you use it, request a new one.{% endblocktrans %}</p>
+      {% trans "Password reset almost complete" %}
     {% elif is_remove %}
-      <p>{% blocktrans %}Shortly, you should receive an e-mail with a confirmation link. Click it to remove your account.{% endblocktrans %}</p>
-      <p>{% blocktrans %}If the confirmation link expires before you use it, request a new one.{% endblocktrans %}</p>
+      {% trans "Account removal almost complete" %}
     {% else %}
-      <p>{% blocktrans %}Thank you for registering. Click the confirmation link you receive by e-mail to complete the registration.{% endblocktrans %}</p>
-      <p>{% blocktrans %}If the confirmation link expires before you use it, register again.{% endblocktrans %}</p>
+      {% trans "Registration almost complete" %}
     {% endif %}
+  </h2>
 
-    <p>
-      {% url 'contact' as contact_url %}
-      {% blocktrans %}If you don't receive it shortly, please check your spam folder or retry the registration. If the problem persist, please <a href="{{ contact_url }}">contact us</a>.{% endblocktrans %}
-    </p>
-  </div>
+  <p>
+    {% if is_reset %}
+      {% blocktrans %}Follow the password recovery instructions sent to your e-mail inbox.{% endblocktrans %}
+    {% elif is_remove %}
+      {% blocktrans %}Remove your account by clicking the confirmation link sent to your e-mail inbox.{% endblocktrans %}
+    {% else %}
+      {% blocktrans %}Click the confirmation link sent to your e-mail inbox and start using your account.{% endblocktrans %}
+    {% endif %}
+  </p>
+
+  <p>
+    {% blocktrans %}Please look into your spam folder if you cannot see it in your inbox.{% endblocktrans %}
+  </p>
+
+  <p>
+    {% blocktrans count count=validity %}The confirmation link will expire after {{ count }} hour.{% plural %}The confirmation link will expire after {{ count }} hours.{% endblocktrans %}
+    {% if is_reset or is_remove %}
+      {% blocktrans %}Request a new confirmation link if it expires.{% endblocktrans %}
+    {% else %}
+      {% blocktrans %}Register again if the confirmation link expires.{% endblocktrans %}
+    {% endif %}
+  </p>
+
+  <p>
+    <a href="{% url 'contact' %}?t=reg">{% blocktrans %}If there is a problem with your registration, please contact us.{% endblocktrans %}</a>
+  </p>
+
 </div>
 {% endblock %}

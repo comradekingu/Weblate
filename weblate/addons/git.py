@@ -1,38 +1,23 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 from collections import defaultdict
 from itertools import chain
 
-from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_lazy
 
 from weblate.addons.base import BaseAddon
 from weblate.addons.events import EVENT_POST_COMMIT
 from weblate.addons.forms import GitSquashForm
 from weblate.utils.errors import report_error
-from weblate.vcs.base import RepositoryException
+from weblate.vcs.base import RepositoryError
 
 
 class GitSquashAddon(BaseAddon):
     name = "weblate.git.squash"
-    verbose = _("Squash Git commits")
-    description = _("Squash Git commits prior to pushing changes.")
+    verbose = gettext_lazy("Squash Git commits")
+    description = gettext_lazy("Squash Git commits prior to pushing changes.")
     settings_form = GitSquashForm
     compat = {
         "vcs": {
@@ -43,6 +28,7 @@ class GitSquashAddon(BaseAddon):
             "pagure",
             "gitlab",
             "git-force-push",
+            "gitea",
         }
     }
     events = (EVENT_POST_COMMIT,)
@@ -54,12 +40,13 @@ class GitSquashAddon(BaseAddon):
         message = self.get_squash_commit_message(repository, "%B", remote)
         repository.execute(["reset", "--mixed", remote])
         # Can happen for added and removed translation
-        if repository.needs_commit():
-            repository.commit(message, author)
+        component.commit_files(
+            author=author, message=message, signals=False, skip_push=True
+        )
 
     def get_filenames(self, component):
         languages = defaultdict(list)
-        for origin in [component] + list(component.linked_childs):
+        for origin in [component, *list(component.linked_childs)]:
             for translation in origin.translation_set.prefetch_related("language"):
                 code = translation.language.code
                 if not translation.filename:
@@ -74,7 +61,7 @@ class GitSquashAddon(BaseAddon):
             f"{remote}..HEAD",
         ]
         if filenames:
-            command += ["--"] + filenames
+            command += ["--", *filenames]
 
         return repository.execute(command)
 
@@ -88,13 +75,25 @@ class GitSquashAddon(BaseAddon):
                 f"{remote}..HEAD",
             ]
             if filenames:
-                command += ["--"] + filenames
+                command += ["--", *filenames]
 
-            trailer_lines = {
-                trailer
-                for trailer in repository.execute(command).split("\n")
-                if trailer.strip()
-            }
+            trailer_lines = set()
+            change_id_line = None
+            for trailer in repository.execute(command).split("\n"):
+                # Skip blank lines
+                if not trailer.strip():
+                    continue
+
+                # Pick only last Change-Id, there suppose to be only one in the
+                # commit (used by Gerrit)
+                if trailer.startswith("Change-Id:"):
+                    change_id_line = trailer
+                    continue
+
+                trailer_lines.add(trailer)
+
+            if change_id_line is not None:
+                trailer_lines.add(change_id_line)
 
             if commit_message:
                 # Predefined commit message
@@ -143,7 +142,9 @@ class GitSquashAddon(BaseAddon):
         for code, message in messages.items():
             if not message:
                 continue
-            repository.commit(message, files=languages[code])
+            component.commit_files(
+                message=message, files=languages[code], signals=False, skip_push=True
+            )
 
     def squash_file(self, component, repository):
         remote = repository.get_remote_branch_name()
@@ -161,7 +162,9 @@ class GitSquashAddon(BaseAddon):
         for filename, message in messages.items():
             if not message:
                 continue
-            repository.commit(message, files=[filename])
+            component.commit_files(
+                message=message, files=[filename], signals=False, skip_push=True
+            )
 
     def squash_author(self, component, repository):
         remote = repository.get_remote_branch_name()
@@ -170,7 +173,7 @@ class GitSquashAddon(BaseAddon):
             x.split(None, 1)
             for x in reversed(
                 repository.execute(
-                    ["log", "--format=%H %aE", f"{remote}..HEAD"]
+                    ["log", "--no-merges", "--format=%H %aE", f"{remote}..HEAD"]
                 ).splitlines()
             )
         ]
@@ -189,16 +192,16 @@ class GitSquashAddon(BaseAddon):
                 base = repository.get_last_revision()
                 # Cherry pick current commit (this should work
                 # unless something is messed up)
-                repository.execute(["cherry-pick", commit] + gpg_sign)
+                repository.execute(["cherry-pick", commit, *gpg_sign])
                 handled = []
                 # Pick other commits by same author
                 for i, other in enumerate(commits):
                     if other[1] != author:
                         continue
                     try:
-                        repository.execute(["cherry-pick", other[0]] + gpg_sign)
+                        repository.execute(["cherry-pick", other[0], *gpg_sign])
                         handled.append(i)
-                    except RepositoryException:
+                    except RepositoryError:
                         # If fails, continue to another author, we will
                         # pick this commit later (it depends on some other)
                         repository.execute(["cherry-pick", "--abort"])
@@ -214,8 +217,8 @@ class GitSquashAddon(BaseAddon):
             repository.execute(["reset", "--hard", tmp])
             repository.delete_branch(tmp)
 
-        except RepositoryException:
-            report_error(cause="Failed squash")
+        except Exception:
+            report_error(cause="Failed squash", project=component.project)
             # Revert to original branch without any changes
             repository.execute(["reset", "--hard"])
             repository.execute(["checkout", repository.branch])
@@ -223,13 +226,17 @@ class GitSquashAddon(BaseAddon):
 
     def post_commit(self, component):
         repository = component.repository
+        branch_updated = False
         with repository.lock:
             # Ensure repository is rebased on current remote prior to squash, otherwise
             # we might be squashing upstream changes as well due to reset.
-            if component.repo_needs_merge() and not component.update_branch(
-                method="rebase", skip_push=True
-            ):
-                return
+            if component.repo_needs_merge():
+                try:
+                    branch_updated = component.update_branch(
+                        method="rebase", skip_push=True
+                    )
+                except RepositoryError:
+                    return
             if not repository.needs_push():
                 return
             method = getattr(
@@ -244,3 +251,6 @@ class GitSquashAddon(BaseAddon):
                 signals=False,
                 skip_push=True,
             )
+            # Parse translation files to process any updates fetched by update_branch
+            if branch_updated:
+                component.create_translations()

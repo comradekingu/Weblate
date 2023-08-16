@@ -1,372 +1,358 @@
-# SOME DESCRIPTIVE TITLE.
-# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
-# This file is distributed under the same license as the PACKAGE package.
-# Anonymous <noreply@weblate.org>, 2020.
-# Kurd As <kurd68587@gmail.com>, 2020.
+# Copyright © Michal Čihař <michal@weblate.org>
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 msgid ""
 msgstr ""
-"Project-Id-Version: Weblate 4.5.2\n"
+"Project-Id-Version: Weblate 5.0\n"
 "Report-Msgid-Bugs-To: https://github.com/WeblateOrg/weblate/issues\n"
-"POT-Creation-Date: 2021-03-21 12:39+0000\n"
-"PO-Revision-Date: 2020-10-03 10:41+0000\n"
+"POT-Creation-Date: 2023-08-10 10:41+0000\n"
+"PO-Revision-Date: 2022-06-16 13:19+0000\n"
 "Last-Translator: Kurd As <kurd68587@gmail.com>\n"
-"Language-Team: Central Kurdish <https://hosted.weblate.org/projects/weblate/"
-"javascript/ckb/>\n"
+"Language-Team: Kurdish (Central) <https://hosted.weblate.org/projects/"
+"weblate/javascript/ckb/>\n"
 "Language: ckb\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=n != 1;\n"
-"X-Generator: Weblate 4.3-dev\n"
+"X-Generator: Weblate 4.13-dev\n"
 
-#: weblate/static/editor/base.js:148
+#: weblate/static/editor/base.js:94
+msgid "Please select target plural by clicking."
+msgstr "تکایە بە کلیک کردن فرەی ئامانج هەڵبژێرە."
+
+#: weblate/static/editor/base.js:174
 #, javascript-format
 msgid "Cmd+%s"
 msgstr "Cmd+%s"
 
-#: weblate/static/editor/base.js:150
+#: weblate/static/editor/base.js:176
 #, javascript-format
 msgid "Ctrl+%s"
 msgstr "Ctrl+%s"
 
-#: weblate/static/editor/full.js:222
+#: weblate/static/editor/full.js:265
+msgid "Translation memory entry removed."
+msgstr ""
+
+#: weblate/static/editor/full.js:298
 msgid "The request for machine translation has failed:"
 msgstr "داواکاری وەرگێڕانی ئامێر شکستی هێنا:"
 
-#: weblate/static/editor/full.js:235
+#: weblate/static/editor/full.js:311
 #, javascript-format
 msgid "The request for machine translation using %s has failed:"
 msgstr "داواکاری وەرگێڕانی ئامێر بە بەکارهێنانی %s شکستی هێنا:"
 
-#: weblate/static/editor/full.js:269
+#: weblate/static/editor/full.js:346
 #, javascript-format
 msgid "Cmd+M then %s"
 msgstr "Cmd+M پاشان %s"
 
-#: weblate/static/editor/full.js:271
+#: weblate/static/editor/full.js:348
 #, javascript-format
 msgid "Ctrl+M then %s"
 msgstr "Ctrl+M پاشان %s"
 
-#: weblate/static/editor/full.js:359
+#: weblate/static/editor/full.js:450
 #, javascript-format
 msgid "Press Cmd+I then %s to dismiss this."
 msgstr "سی ئێم دی+I دابگرە پاشان %s بۆ دەرکردنی ئەمە."
 
-#: weblate/static/editor/full.js:364
+#: weblate/static/editor/full.js:455
 #, javascript-format
 msgid "Press Ctrl+I then %s to dismiss this."
 msgstr "Ctrl+I دابگرە پاشان %s بۆ دەرکردنی ئەمە."
 
-#: weblate/static/editor/full.js:493
-msgid "Copy"
-msgstr "کۆپی"
+#: weblate/static/editor/full.js:595
+msgid "Clone to translation"
+msgstr ""
 
-#: weblate/static/editor/full.js:499
-msgid "Copy and save"
-msgstr "کۆپی و پاراستن"
+#: weblate/static/editor/full.js:601
+msgid "Accept"
+msgstr ""
 
-#: weblate/static/editor/zen.js:101
+#: weblate/static/editor/full.js:612
+msgid "Delete entry"
+msgstr ""
+
+#: weblate/static/editor/zen.js:105
 msgid "There are some unsaved changes, are you sure you want to leave?"
 msgstr "هەندێک گۆڕانکاری هەڵنەگیراو هەیە، دڵنیایت لەوەی دەتەوێت بڕۆیت؟"
 
-#: weblate/static/loader-bootstrap.js:160
-msgid "Add to screenshot"
-msgstr "زیادکردن بۆ گرتەی شاشە"
-
-#: weblate/static/loader-bootstrap.js:177
+#: weblate/static/loader-bootstrap.js:171
 msgid "Error loading search results!"
-msgstr ""
+msgstr "هەڵە لە بارکردنی ئەنجامەکانی گەڕان!"
 
-#: weblate/static/loader-bootstrap.js:181
+#: weblate/static/loader-bootstrap.js:175
 msgid "No new matching source strings found."
-msgstr ""
+msgstr "هیچ زنجیرەی سەرچاوەی هاوتای نوێ نەدۆزرایەوە."
 
-#: weblate/static/loader-bootstrap.js:250
+#: weblate/static/loader-bootstrap.js:245
 msgid "Sort this column"
-msgstr ""
+msgstr "پۆلێنکردنی ئەم ستوونە"
 
-#: weblate/static/loader-bootstrap.js:476
+#: weblate/static/loader-bootstrap.js:487
 msgid "Error while loading page:"
-msgstr ""
+msgstr "هەڵە ڕوویدا لەکاتی بارکردنی لاپەڕە:"
 
-#: weblate/static/loader-bootstrap.js:637
-#: weblate/static/loader-bootstrap.js:644
-msgid "Sunday"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:638
-msgid "Monday"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:639
-msgid "Tuesday"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:640
-msgid "Wednesday"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:641
-msgid "Thursday"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:642
-msgid "Friday"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:643
-msgid "Saturday"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:647
-#: weblate/static/loader-bootstrap.js:654
-msgctxt "Short (for example three letter) name of day in week"
-msgid "Sun"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:648
-msgctxt "Short (for example three letter) name of day in week"
-msgid "Mon"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:649
-msgctxt "Short (for example three letter) name of day in week"
-msgid "Tue"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:650
-msgctxt "Short (for example three letter) name of day in week"
-msgid "Wed"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:651
-msgctxt "Short (for example three letter) name of day in week"
-msgid "Thu"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:652
-msgctxt "Short (for example three letter) name of day in week"
-msgid "Fri"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:653
-msgctxt "Short (for example three letter) name of day in week"
-msgid "Sat"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:657
-#: weblate/static/loader-bootstrap.js:664
-msgctxt "Minimal (for example two letter) name of day in week"
-msgid "Su"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:658
-msgctxt "Minimal (for example two letter) name of day in week"
-msgid "Mo"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:659
-msgctxt "Minimal (for example two letter) name of day in week"
-msgid "Tu"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:660
-msgctxt "Minimal (for example two letter) name of day in week"
-msgid "We"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:661
-msgctxt "Minimal (for example two letter) name of day in week"
-msgid "Th"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:662
-msgctxt "Minimal (for example two letter) name of day in week"
-msgid "Fr"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:663
-msgctxt "Minimal (for example two letter) name of day in week"
-msgid "Sa"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:667
-msgid "January"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:668
-msgid "February"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:669
-msgid "March"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:670
-msgid "April"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:671
-msgid "May"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:672
-msgid "June"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:673
-msgid "July"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:674
-msgid "August"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:675
-msgid "September"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:676
-msgid "October"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:677
-msgid "November"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:678
-msgid "December"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:681
-msgctxt "Short name of month"
-msgid "Jan"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:682
-msgctxt "Short name of month"
-msgid "Feb"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:683
-msgctxt "Short name of month"
-msgid "Mar"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:684
-msgctxt "Short name of month"
-msgid "Apr"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:685
-msgctxt "Short name of month"
-msgid "May"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:686
-msgctxt "Short name of month"
-msgid "Jun"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:687
-msgctxt "Short name of month"
-msgid "Jul"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:688
-msgctxt "Short name of month"
-msgid "Aug"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:689
-msgctxt "Short name of month"
-msgid "Sep"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:690
-msgctxt "Short name of month"
-msgid "Oct"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:691
-msgctxt "Short name of month"
-msgid "Nov"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:692
-msgctxt "Short name of month"
-msgid "Dec"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:694
-msgid "Today"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:695
-msgid "Clear"
-msgstr ""
-
-#: weblate/static/loader-bootstrap.js:855
+#: weblate/static/loader-bootstrap.js:762
 msgid "Text copied to clipboard."
-msgstr ""
+msgstr "دەق کۆپی کراوە بۆ کلیپ بۆرد."
 
-#: weblate/static/loader-bootstrap.js:858
+#: weblate/static/loader-bootstrap.js:766
 msgid "Please press Ctrl+C to copy."
-msgstr ""
+msgstr "تکایە Ctrl+C دابگرە بۆ کۆپیکردن."
 
-#: weblate/static/loader-bootstrap.js:882
+#: weblate/static/loader-bootstrap.js:790
 msgid "Search…"
-msgstr ""
+msgstr "گەڕان…"
 
-#: weblate/static/loader-bootstrap.js:883
+#: weblate/static/loader-bootstrap.js:791
 msgid "Available:"
-msgstr ""
+msgstr "بەردەست:"
 
-#: weblate/static/loader-bootstrap.js:884
+#: weblate/static/loader-bootstrap.js:792
 msgid "Chosen:"
-msgstr ""
+msgstr "هەڵبژێردراو:"
 
-#: weblate/static/loader-bootstrap.js:1143
+#: weblate/static/loader-bootstrap.js:1057
 msgid "Weblate is now scanning the repository, please be patient."
-msgstr ""
+msgstr "ئێستا وێبلایت کۆگاکە دەپشکنێت، تکایە ئارام بگرە."
 
-#: weblate/static/zammad.js:3
+#: weblate/static/loader-bootstrap.js:1278
+msgctxt "Alert to user when opening browser developer console"
+msgid "Stop!"
+msgstr "بۆستە!"
+
+#: weblate/static/loader-bootstrap.js:1284
+msgid ""
+"This is a browser feature intended for developers. If someone told you to "
+"copy-paste something here, they are likely trying to compromise your Weblate "
+"account."
+msgstr ""
+"ئەمە تایبەتمەندییەکی وێبگەڕە کە بۆ گەشەپێدەران دانراوە. ئەگەر کەسێک پێی وتی "
+"لێرە شتێک کۆپی بکە، لەوانەیە هەوڵی سازشکردن بدات لەسەر هەژماری Weblate ـەکەت."
+
+#: weblate/static/loader-bootstrap.js:1290
+msgid "See https://en.wikipedia.org/wiki/Self-XSS for more information."
+msgstr "ببینە https://en.wikipedia.org/wiki/Self-XSS for more information."
+
+#: weblate/static/zammad.js:7
 msgid "Weblate feedback"
-msgstr ""
+msgstr "فێدباکی وێبلایت"
 
-#: weblate/static/zammad.js:4
+#: weblate/static/zammad.js:8
 msgid "Get help"
-msgstr ""
+msgstr "یارمەتی بهێنە"
 
-#: weblate/static/zammad.js:6
+#: weblate/static/zammad.js:10
 #, javascript-format
 msgid ""
 "Thank you for your inquiry (#%s)! We'll contact you as soon as possible."
-msgstr ""
+msgstr "سوپاس بۆ لێپرسینەوەکەت (#%s)! بە زووترین کات پەیوەندیت پێوە دەکەین."
 
-#: weblate/static/zammad.js:13
+#: weblate/static/zammad.js:17
 msgid "Subject"
 msgstr "سەردێڕ"
 
-#: weblate/static/zammad.js:21
+#: weblate/static/zammad.js:25
 msgid "Your name"
 msgstr "ناوت"
 
-#: weblate/static/zammad.js:29
+#: weblate/static/zammad.js:33
 msgid "Your e-mail"
 msgstr "پۆستە ئەلیکترۆنییەکەت"
 
-#: weblate/static/zammad.js:37
+#: weblate/static/zammad.js:41
 msgid "Message"
 msgstr "پەیام"
 
-#: weblate/static/zammad.js:41
+#: weblate/static/zammad.js:45
 msgid ""
 "Please contact us in English, otherwise we might be unable to process your "
 "request."
 msgstr ""
+"تکایە پەیوەندیمان پێوە بکە بە ئینگلیزی، ئەگەرنا لەوانەیە نەتوانین "
+"داواکاریەکەت جێبەجێ بکەین."
 
-#: weblate/static/zammad.js:47
+#: weblate/static/zammad.js:51
 msgid "Attachments"
-msgstr ""
+msgstr "هاوپێچەکان"
+
+#~ msgid "Sunday"
+#~ msgstr "یەکشەممە"
+
+#~ msgid "Monday"
+#~ msgstr "دووشەممە"
+
+#~ msgid "Tuesday"
+#~ msgstr "سێشەممە"
+
+#~ msgid "Wednesday"
+#~ msgstr "چوارشەممە"
+
+#~ msgid "Thursday"
+#~ msgstr "پێنج شەممە"
+
+#~ msgid "Friday"
+#~ msgstr "هەینی"
+
+#~ msgid "Saturday"
+#~ msgstr "شەممە"
+
+#~ msgctxt "Short (for example three letter) name of day in week"
+#~ msgid "Sun"
+#~ msgstr "یەک شەممە"
+
+#~ msgctxt "Short (for example three letter) name of day in week"
+#~ msgid "Mon"
+#~ msgstr "دووشەممە"
+
+#~ msgctxt "Short (for example three letter) name of day in week"
+#~ msgid "Tue"
+#~ msgstr "سێ شەممە"
+
+#~ msgctxt "Short (for example three letter) name of day in week"
+#~ msgid "Wed"
+#~ msgstr "چوارشەممە"
+
+#~ msgctxt "Short (for example three letter) name of day in week"
+#~ msgid "Thu"
+#~ msgstr "پێنج شەممە"
+
+#~ msgctxt "Short (for example three letter) name of day in week"
+#~ msgid "Fri"
+#~ msgstr "هەینی"
+
+#~ msgctxt "Short (for example three letter) name of day in week"
+#~ msgid "Sat"
+#~ msgstr "شەممە"
+
+#~ msgctxt "Minimal (for example two letter) name of day in week"
+#~ msgid "Su"
+#~ msgstr "یەکشەممە"
+
+#~ msgctxt "Minimal (for example two letter) name of day in week"
+#~ msgid "Mo"
+#~ msgstr "دووشەممە"
+
+#~ msgctxt "Minimal (for example two letter) name of day in week"
+#~ msgid "Tu"
+#~ msgstr "سێ شەممە"
+
+#~ msgctxt "Minimal (for example two letter) name of day in week"
+#~ msgid "We"
+#~ msgstr "چوارشەممە"
+
+#~ msgctxt "Minimal (for example two letter) name of day in week"
+#~ msgid "Th"
+#~ msgstr "پێنجشەممە"
+
+#~ msgctxt "Minimal (for example two letter) name of day in week"
+#~ msgid "Fr"
+#~ msgstr "هەینی"
+
+#~ msgctxt "Minimal (for example two letter) name of day in week"
+#~ msgid "Sa"
+#~ msgstr "شەممە"
+
+#~ msgid "January"
+#~ msgstr "کانوونی دووەم"
+
+#~ msgid "February"
+#~ msgstr "شوبات"
+
+#~ msgid "March"
+#~ msgstr "ئازار"
+
+#~ msgid "April"
+#~ msgstr "نیسان"
+
+#~ msgid "May"
+#~ msgstr "ئایار"
+
+#~ msgid "June"
+#~ msgstr "حوزەیران"
+
+#~ msgid "July"
+#~ msgstr "تەممووز"
+
+#~ msgid "August"
+#~ msgstr "ئاب"
+
+#~ msgid "September"
+#~ msgstr "ئەیلوول"
+
+#~ msgid "October"
+#~ msgstr "تشرینی یەکەم"
+
+#~ msgid "November"
+#~ msgstr "تشرینی دووەم"
+
+#~ msgid "December"
+#~ msgstr "کانوونی یەکەم"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Jan"
+#~ msgstr "کانوونی دووەم"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Feb"
+#~ msgstr "شوبات"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Mar"
+#~ msgstr "ئازار"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Apr"
+#~ msgstr "نیسان"
+
+#~ msgctxt "Short name of month"
+#~ msgid "May"
+#~ msgstr "ئایار"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Jun"
+#~ msgstr "حوزەیران"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Jul"
+#~ msgstr "تەمموز"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Aug"
+#~ msgstr "ئاب"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Sep"
+#~ msgstr "ئەیلوول"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Oct"
+#~ msgstr "تشرینی یەکەم"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Nov"
+#~ msgstr "تشرینی دووەم"
+
+#~ msgctxt "Short name of month"
+#~ msgid "Dec"
+#~ msgstr "کانوونی یەکەم"
+
+#~ msgid "Today"
+#~ msgstr "ئەمڕۆ"
+
+#~ msgid "Clear"
+#~ msgstr "سڕینەوە"
+
+#~ msgid "Copy"
+#~ msgstr "کۆپی"
+
+#~ msgid "Copy and save"
+#~ msgstr "کۆپی و پاراستن"
+
+#~ msgid "Add to screenshot"
+#~ msgstr "زیادکردن بۆ گرتەی شاشە"

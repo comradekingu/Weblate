@@ -5,33 +5,44 @@ Security and privacy
 
    At Weblate, security maintains an environment that values the privacy of our users.
 
-Weblate development follows the `Best Practices of the Linux Foundation's Core Infrastructure Initiative <https://bestpractices.coreinfrastructure.org/projects/552>`_.
+Development of Weblate adheres to the `Best Practices of the Linux Foundation's Core Infrastructure Initiative <https://bestpractices.coreinfrastructure.org/projects/552>`_.
+
+.. seealso::
+
+   :ref:`security`
+
+Security updates
+----------------
+
+Only the latest release is guaranteed to receive security updates.
 
 Tracking dependencies for vulnerabilities
 -----------------------------------------
 
-We do monitor security issues in our dependencies using `Dependabot
-<https://dependabot.com/>`_. This covers Python and JavaScript libraries and
-latest stable release should have adjusted dependencies to avoid
-vulnerabilities.
+Security issues in our dependencies are monitored using `Dependabot`_. This
+covers the Python and JavaScript libraries, and the latest stable release has
+its dependencies updated to avoid vulnerabilities.
 
 .. hint::
 
    There might be vulnerabilities in third-party libraries which do not affect
-   Weblate, and we do not address these in a bugfix release.
+   Weblate, so those are not addressed by releasing bugfix versions of Weblate.
 
-Docker containers security
---------------------------
+Docker container security
+-------------------------
 
-The Docker containers are scanned using `Anchore <https://anchore.com/>`_ and
-`Trivy <https://github.com/aquasecurity/trivy>`_.
+The Docker containers are regularly scanned using `Anchore`_ and `Trivy`_
+security scanners.
 
-This allows us to detect vulnerabilities early and release an updated version
-of the container containing fixes.
+This allows us to detect vulnerabilities early and release improvements quickly.
 
-You can get the results of these scans at GitHub - they are stored as artifacts
-on our CI as Static Analysis Results Interchange Format (SARIF).
+You can get the results of these scans at GitHub — they are stored as artifacts
+on our CI in the SARIF format (Static Analysis Results Interchange Format).
 
 .. seealso::
 
    :ref:`ci-tests`
+
+.. _Dependabot: https://docs.github.com/en/code-security/dependabot/dependabot-security-updates/about-dependabot-security-updates
+.. _Anchore: https://anchore.com/
+.. _Trivy: https://github.com/aquasecurity/trivy

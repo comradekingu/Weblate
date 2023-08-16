@@ -1,26 +1,14 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Automatic detection of file format."""
+
+from __future__ import annotations
 
 import os.path
 from fnmatch import fnmatch
-from typing import Optional
+from typing import Any
 
 from translate.storage import factory
 
@@ -38,7 +26,9 @@ def detect_filename(filename):
     return None
 
 
-def try_load(filename, content, original_format, template_store):
+def try_load(
+    filename, content, original_format, template_store, as_template: bool = False
+):
     """Try to load file by guessing type."""
     # Start with original format and translate-toolkit based autodetection
     formats = [original_format, AutodetectFormat]
@@ -60,16 +50,16 @@ def try_load(filename, content, original_format, template_store):
         formats.insert(1, original_format.bilingual_class)
     failure = Exception("Bug!")
     for file_format in formats:
-        if file_format.monolingual in (True, None) and template_store:
+        if file_format.monolingual in (True, None) and (template_store or as_template):
             try:
                 result = file_format.parse(
                     BytesIOMode(filename, content), template_store
                 )
                 result.check_valid()
-                # Skip if there is not translated unit
+                # Skip if there is untranslated unit
                 # this can easily happen when importing bilingual
                 # storage which can be monolingual as well
-                if list(result.iterate_merge(False)):
+                if list(result.iterate_merge("")):
                     return result
             except Exception as error:
                 failure = error
@@ -77,9 +67,10 @@ def try_load(filename, content, original_format, template_store):
             try:
                 result = file_format.parse(BytesIOMode(filename, content))
                 result.check_valid()
-                return result
             except Exception as error:
                 failure = error
+            else:
+                return result
 
     raise failure
 
@@ -96,11 +87,13 @@ class AutodetectFormat(TTKitFormat):
         cls,
         storefile,
         template_store=None,
-        language_code: Optional[str] = None,
-        source_language: Optional[str] = None,
+        language_code: str | None = None,
+        source_language: str | None = None,
         is_template: bool = False,
+        existing_units: list[Any] | None = None,
     ):
-        """Parse store and returns TTKitFormat instance.
+        """
+        Parse store and returns TTKitFormat instance.
 
         First attempt own autodetection, then fallback to ttkit.
         """
@@ -117,12 +110,14 @@ class AutodetectFormat(TTKitFormat):
                     language_code=language_code,
                     source_language=source_language,
                     is_template=is_template,
+                    existing_units=existing_units,
                 )
         return cls(
             storefile,
             template_store=template_store,
             language_code=language_code,
             is_template=is_template,
+            existing_units=existing_units,
         )
 
     @classmethod

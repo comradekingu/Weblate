@@ -1,33 +1,22 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+from __future__ import annotations
 
 import re
-from copy import copy
-from typing import List, Optional
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import Error as DjangoDatabaseError
 from django.db import models, transaction
-from django.db.models import Count, Max, Q
+from django.db.models import Count, Max, Q, Value
+from django.db.models.functions import MD5
 from django.utils import timezone
 from django.utils.functional import cached_property
-from django.utils.translation import gettext, gettext_lazy
+from django.utils.translation import gettext, gettext_lazy, gettext_noop
+from pyparsing import ParseException
 
 from weblate.checks.flags import Flags
 from weblate.checks.models import CHECKS, Check
@@ -43,15 +32,13 @@ from weblate.trans.signals import unit_pre_create
 from weblate.trans.util import (
     get_distinct_translations,
     is_plural,
+    is_unused_string,
     join_plural,
     split_plural,
 )
 from weblate.trans.validators import validate_check_flags
-from weblate.utils.db import (
-    FastDeleteModelMixin,
-    FastDeleteQuerySetMixin,
-    get_nokey_args,
-)
+from weblate.utils import messages
+from weblate.utils.db import using_postgresql
 from weblate.utils.errors import report_error
 from weblate.utils.hash import calculate_hash, hash_to_checksum
 from weblate.utils.search import parse_query
@@ -63,6 +50,9 @@ from weblate.utils.state import (
     STATE_READONLY,
     STATE_TRANSLATED,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 SIMPLE_FILTERS = {
     "fuzzy": {"state": STATE_FUZZY},
@@ -81,7 +71,7 @@ SIMPLE_FILTERS = {
 NEWLINES = re.compile(r"\r\n|\r|\n")
 
 
-class UnitQuerySet(FastDeleteQuerySetMixin, models.QuerySet):
+class UnitQuerySet(models.QuerySet):
     def filter_type(self, rqtype):
         """Basic filtering based on unit state or failed checks."""
         if rqtype in SIMPLE_FILTERS:
@@ -90,7 +80,7 @@ class UnitQuerySet(FastDeleteQuerySetMixin, models.QuerySet):
             check_id = rqtype[6:]
             if check_id not in CHECKS:
                 raise ValueError(f"Unknown check: {check_id}")
-            return self.filter(check__check=check_id, check__dismissed=False)
+            return self.filter(check__name=check_id, check__dismissed=False)
         if rqtype.startswith("label:"):
             return self.filter(labels__name=rqtype[6:])
         if rqtype == "all":
@@ -109,7 +99,6 @@ class UnitQuerySet(FastDeleteQuerySetMixin, models.QuerySet):
 
     def prefetch_full(self):
         return self.prefetch_related(
-            "labels",
             "source_unit",
             "source_unit__translation",
             "source_unit__translation__component",
@@ -129,13 +118,7 @@ class UnitQuerySet(FastDeleteQuerySetMixin, models.QuerySet):
 
     def prefetch_bulk(self):
         """Prefetch useful for bulk editing."""
-        return (
-            self.prefetch()
-            .prefetch_full()
-            .prefetch_related(
-                "defined_variants",
-            )
-        )
+        return self.prefetch_full().prefetch_related("defined_variants")
 
     def prefetch_recent_content_changes(self):
         """
@@ -154,15 +137,16 @@ class UnitQuerySet(FastDeleteQuerySetMixin, models.QuerySet):
 
     def search(self, query, **context):
         """High level wrapper for searching."""
-        return self.filter(parse_query(query, **context))
+        result = self.filter(parse_query(query, **context))
+        return result.distinct()
 
     def same(self, unit, exclude=True):
         """Unit with same source within same project."""
         translation = unit.translation
         component = translation.component
         result = self.filter(
-            source=unit.source,
-            context=unit.context,
+            source__md5=MD5(Value(unit.source)),
+            context__md5=MD5(Value(unit.context)),
             translation__component__project_id=component.project_id,
             translation__language_id=translation.language_id,
             translation__component__source_language_id=component.source_language_id,
@@ -170,6 +154,21 @@ class UnitQuerySet(FastDeleteQuerySetMixin, models.QuerySet):
         if exclude:
             result = result.exclude(pk=unit.id)
         return result
+
+    def same_target(self, unit: Unit, target: str | None = None):
+        if target is None:
+            target = unit.target
+        translation = unit.translation
+        component = translation.component
+        return self.filter(
+            target__md5=MD5(Value(target)),
+            translation__component__project_id=component.project_id,
+            translation__language_id=translation.language_id,
+            translation__component__source_language_id=component.source_language_id,
+            translation__component__allow_translation_propagation=True,
+            translation__plural_id=translation.plural_id,
+            translation__plural__number__gt=1,
+        ).exclude(source__md5=MD5(Value(unit.source)))
 
     def order_by_request(self, form_data, obj):
         sort_list_request = form_data.get("sort_by", "").split(",")
@@ -180,8 +179,10 @@ class UnitQuerySet(FastDeleteQuerySetMixin, models.QuerySet):
             "num_words",
             "labels",
             "timestamp",
+            "last_updated",
             "source",
             "target",
+            "location",
         ]
         countable_sort_choices = {
             "num_comments": {"order_by": "comment__count", "filter": None},
@@ -232,7 +233,8 @@ class UnitQuerySet(FastDeleteQuerySetMixin, models.QuerySet):
         return {unit.source: unit for unit in self}
 
     def get_unit(self, ttunit):
-        """Find unit matching translate-toolkit unit.
+        """
+        Find unit matching translate-toolkit unit.
 
         This is used for import, so kind of fuzzy matching is expected.
         """
@@ -269,7 +271,7 @@ class UnitQuerySet(FastDeleteQuerySetMixin, models.QuerySet):
         if user.is_superuser:
             return self
         return self.filter(
-            Q(translation__component__project_id__in=user.allowed_project_ids)
+            Q(translation__component__project__in=user.allowed_projects)
             & (
                 Q(translation__component__restricted=False)
                 | Q(translation__component_id__in=user.component_permissions)
@@ -281,11 +283,24 @@ class UnitQuerySet(FastDeleteQuerySetMixin, models.QuerySet):
         return sorted(self.filter(id__in=ids), key=lambda unit: ids.index(unit.id))
 
     def select_for_update(self):
-        return super().select_for_update(**get_nokey_args())
+        return super().select_for_update(no_key=using_postgresql())
 
 
-class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
+class LabelsField(models.ManyToManyField):
+    def save_form_data(self, instance, data):
+        from weblate.trans.models.label import TRANSLATION_LABELS
 
+        super().save_form_data(instance, data)
+
+        # Delete translation labels when not checked
+        new_labels = {label.name for label in data}
+        through = getattr(instance, self.attname).through.objects
+        for label in TRANSLATION_LABELS:
+            if label not in new_labels:
+                through.filter(unit__source_unit=instance, label__name=label).delete()
+
+
+class Unit(models.Model, LoggerMixin):
     translation = models.ForeignKey("Translation", on_delete=models.deletion.CASCADE)
     id_hash = models.BigIntegerField()
     location = models.TextField(default="", blank=True)
@@ -295,9 +310,7 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
     source = models.TextField()
     previous_source = models.TextField(default="", blank=True)
     target = models.TextField(default="", blank=True)
-    state = models.IntegerField(
-        default=STATE_EMPTY, db_index=True, choices=STATE_CHOICES
-    )
+    state = models.IntegerField(default=STATE_EMPTY, choices=STATE_CHOICES)
     original_state = models.IntegerField(default=STATE_EMPTY, choices=STATE_CHOICES)
     details = models.JSONField(default=dict)
 
@@ -309,13 +322,13 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
 
     pending = models.BooleanField(default=False)
     timestamp = models.DateTimeField(auto_now_add=True)
+    last_updated = models.DateTimeField(auto_now=True)
 
     extra_flags = models.TextField(
         verbose_name=gettext_lazy("Translation flags"),
         default="",
         help_text=gettext_lazy(
-            "Additional comma-separated flags to influence quality checks. "
-            "Possible values can be found in the documentation."
+            "Additional comma-separated flags to influence Weblate behavior."
         ),
         validators=[validate_check_flags],
         blank=True,
@@ -335,9 +348,7 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         null=True,
         default=None,
     )
-    labels = models.ManyToManyField(
-        "Label", verbose_name=gettext_lazy("Labels"), blank=True
-    )
+    labels = LabelsField("Label", verbose_name=gettext_lazy("Labels"), blank=True)
 
     source_unit = models.ForeignKey(
         "Unit", on_delete=models.deletion.CASCADE, blank=True, null=True
@@ -347,33 +358,44 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
 
     class Meta:
         app_label = "trans"
-        unique_together = ("translation", "id_hash")
-        index_together = [("translation", "pending"), ("priority", "position")]
+        unique_together = [("translation", "id_hash")]
         verbose_name = "string"
         verbose_name_plural = "strings"
+        indexes = [
+            models.Index(MD5("source"), name="trans_unit_source_md5_index"),
+            models.Index(MD5("target"), name="trans_unit_target_md5_index"),
+            models.Index(MD5("context"), name="trans_unit_context_md5_index"),
+        ]
 
     def __str__(self):
         if self.translation.is_template:
-            return self.context
-        if self.context:
-            return f"[{self.context}] {self.source}"
-        return self.source
+            name = self.context
+        elif self.context:
+            name = f"[{self.context}] {self.source}"
+        else:
+            name = self.source
+        return f"{self.pk}: {name}"
 
     def save(
         self,
         same_content: bool = False,
         run_checks: bool = True,
-        propagate_checks: Optional[bool] = None,
+        propagate_checks: bool | None = None,
         force_insert: bool = False,
         force_update: bool = False,
         only_save: bool = False,
+        sync_terminology: bool = True,
         using=None,
-        update_fields: Optional[List[str]] = None,
+        update_fields: list[str] | None = None,
     ):
         """Wrapper around save to run checks or update fulltext."""
         # Store number of words
         if not same_content or not self.num_words:
-            self.num_words = len(self.source_string.split())
+            self.num_words = sum(
+                len(s.split())
+                for s in self.get_source_plurals()
+                if not is_unused_string(s)
+            )
             if update_fields and "num_words" not in update_fields:
                 update_fields.append("num_words")
 
@@ -387,15 +409,12 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         if only_save:
             return
 
-        # Set source_unit for source units
+        # Set source_unit for source units, this needs to be done after
+        # having a primary key
         if self.is_source and not self.source_unit:
             self.source_unit = self
-            self.save(
-                same_content=True,
-                run_checks=False,
-                only_save=True,
-                update_fields=["source_unit"],
-            )
+            # Avoid using save() for recursion
+            Unit.objects.filter(pk=self.pk).update(source_unit=self)
 
         # Update checks if content or fuzzy flag has changed
         if run_checks:
@@ -404,28 +423,55 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
             self.source_unit_save()
 
         # Update manual variants
-        self.update_variants()
+        if (
+            self.old_unit["extra_flags"] != self.extra_flags
+            or self.context != self.old_unit["context"]
+            or force_insert
+        ):
+            self.update_variants()
 
         # Update terminology
-        self.sync_terminology()
+        if sync_terminology:
+            self.sync_terminology()
 
     def get_absolute_url(self):
-        return "{}?checksum={}".format(
-            self.translation.get_translate_url(), self.checksum
-        )
+        return f"{self.translation.get_translate_url()}?checksum={self.checksum}"
+
+    def get_url_path(self):
+        return (*self.translation.get_url_path(), str(self.pk))
 
     def __init__(self, *args, **kwargs):
         """Constructor to initialize some cache properties."""
         super().__init__(*args, **kwargs)
-        self.old_unit = copy(self)
         self.is_batch_update = False
         self.source_updated = False
         self.check_cache = {}
+        self.trigger_update_variants = True
         self.fixups = []
         # Data for machinery integration
-        self.machinery = {"best": -1}
+        self.machinery = None
         # Data for glossary integration
         self.glossary_terms = None
+        # Store original attributes for change tracking
+        self.old_unit = None
+        if "state" in self.__dict__:
+            self.store_old_unit(self)
+
+    def invalidate_checks_cache(self):
+        self.check_cache = {}
+        for key in ["same_source_units", "same_target_units"]:
+            if key in self.__dict__:
+                del self.__dict__[key]
+
+    def store_old_unit(self, unit):
+        self.old_unit = {
+            "state": unit.state,
+            "source": unit.source,
+            "target": unit.target,
+            "context": unit.context,
+            "extra_flags": unit.extra_flags,
+            "explanation": unit.explanation,
+        }
 
     @property
     def approved(self):
@@ -472,12 +518,14 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         # Run checks, update state and priority if flags changed
         # or running bulk edit
         if (
-            self.old_unit.extra_flags != self.extra_flags
-            or self.state != self.old_unit.state
+            self.old_unit["extra_flags"] != self.extra_flags
+            or self.state != self.old_unit["state"]
         ):
             # We can not exclude current unit here as we need to trigger
             # the updates below
-            for unit in self.unit_set.prefetch_bulk():
+            for unit in self.unit_set.prefetch().prefetch_bulk():
+                # Share component instance for locking and possible bulk updates
+                unit.translation.component = self.translation.component
                 unit.update_state()
                 unit.update_priority()
                 unit.run_checks()
@@ -485,18 +533,24 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
                 self.translation.component.invalidate_cache()
 
     def sync_terminology(self):
-        new_flags = Flags(self.extra_flags, self.flags)
+        try:
+            unit_flags = Flags(self.flags)
+        except ParseException:
+            unit_flags = None
+        new_flags = Flags(self.extra_flags, unit_flags)
 
         if "terminology" in new_flags:
-            self.translation.component.sync_terminology()
+            self.translation.component.schedule_sync_terminology()
 
     def update_variants(self):
         variants = self.defined_variants.all()
+        component = self.translation.component
         flags = self.all_flags
         new_variant = None
         remove = False
+
         if not flags.has_value("variant"):
-            remove = True
+            remove = bool(variants)
         else:
             new_variant = flags.get_value("variant")
             if any(variant.key != new_variant for variant in variants):
@@ -514,36 +568,51 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         # Add new variant
         if new_variant:
             variant = Variant.objects.get_or_create(
-                key=new_variant, component=self.translation.component
+                key=new_variant, component=component
             )[0]
             variant.defining_units.add(self)
 
         # Update variant links
-        if remove or new_variant:
-            self.translation.component.update_variants()
-
-    def get_unit_state(self, unit, flags):
-        """Calculate translated and fuzzy status."""
         if (
-            unit.is_readonly()
-            or (flags is not None and "read-only" in self.get_all_flags(flags))
+            remove
+            or new_variant
             or (
-                flags is not None
-                and not self.is_source
-                and self.source_unit.state < STATE_TRANSLATED
+                component.variant_regex
+                and re.findall(component.variant_regex, self.context)
             )
         ):
+            if self.trigger_update_variants:
+                component.update_variants()
+            else:
+                component.needs_variants_update = True
+
+    def get_unit_state(self, unit, flags: str, string_changed: bool = False):
+        """Calculate translated and fuzzy status."""
+        # Read-only from the file format
+        if unit.is_readonly():
             return STATE_READONLY
+
+        if flags is not None:
+            # Read only from the source
+            if not self.is_source and self.source_unit.state < STATE_TRANSLATED:
+                return STATE_READONLY
+
+            # Read only from flags
+            if "read-only" in self.get_all_flags(flags):
+                return STATE_READONLY
 
         # We need to keep approved/fuzzy state for formats which do not
         # support saving it
-        if unit.is_fuzzy(self.fuzzy):
+        if unit.is_fuzzy(self.fuzzy and not string_changed):
             return STATE_FUZZY
 
         if not unit.is_translated():
             return STATE_EMPTY
 
-        if unit.is_approved(self.approved) and self.translation.enable_review:
+        if (
+            unit.is_approved(self.approved and not string_changed)
+            and self.translation.enable_review
+        ):
             return STATE_APPROVED
 
         return STATE_TRANSLATED
@@ -552,10 +621,12 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
     def check_valid(texts):
         for text in texts:
             if any(char in text for char in CONTROLCHARS):
-                raise ValueError(f"String contains control char: {text!r}")
+                raise ValueError(
+                    gettext("String contains control character: %s") % repr(text)
+                )
 
     def update_source_unit(
-        self, component, source, context, pos, note, location, flags
+        self, component, source, context, pos, note, location, flags, explanation
     ):
         source_unit = component.get_source(
             self.id_hash,
@@ -566,28 +637,32 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
                 "position": pos,
                 "note": note,
                 "location": location,
+                "explanation": explanation,
                 "flags": flags,
             },
         )
+        same_flags = flags == source_unit.flags
         if (
             not source_unit.source_updated
-            and not component.has_template()
+            and not source_unit.translation.filename
             and (
                 pos != source_unit.position
                 or location != source_unit.location
-                or flags != source_unit.flags
+                or not same_flags
                 or note != source_unit.note
             )
         ):
             source_unit.position = pos
             source_unit.source_updated = True
             source_unit.location = location
+            source_unit.explanation = explanation
             source_unit.flags = flags
             source_unit.note = note
             source_unit.save(
-                update_fields=["position", "location", "flags", "note"],
+                update_fields=["position", "location", "explanation", "flags", "note"],
                 same_content=True,
                 run_checks=False,
+                only_save=same_flags,
             )
         self.source_unit = source_unit
 
@@ -596,10 +671,17 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         translation = self.translation
         component = translation.component
         self.is_batch_update = True
+        self.trigger_update_variants = False
         self.source_updated = True
         # Get unit attributes
         try:
             location = unit.locations
+            if self.translation.component.file_format_cls.supports_explanation:
+                explanation = unit.explanation
+                source_explanation = unit.source_explanation
+            else:
+                explanation = self.explanation
+                source_explanation = "" if created else self.source_unit.explanation
             flags = unit.flags
             source = unit.source
             self.check_valid(split_plural(source))
@@ -612,9 +694,11 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
             context = unit.context
             self.check_valid([context])
             note = unit.notes
-            previous_source = unit.previous_source
+            source_change = previous_source = unit.previous_source
+        except DjangoDatabaseError:
+            raise
         except Exception as error:
-            report_error(cause="Unit update error")
+            report_error(cause="Unit update error", project=component.project)
             translation.component.handle_parse_error(error, translation)
 
         # Ensure we track source string for bilingual, this can not use
@@ -623,45 +707,61 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         old_source_unit = self.source_unit
         if not translation.is_source:
             self.update_source_unit(
-                component, source, context, pos, note, location, flags
+                component,
+                source,
+                context,
+                pos,
+                note,
+                location,
+                flags,
+                source_explanation,
             )
 
-        # Calculate state
-        state = self.get_unit_state(unit, flags)
-        original_state = self.get_unit_state(unit, None)
-
-        # Has source changed
+        # Has source/target changed
         same_source = source == self.source and context == self.context
+        same_target = target == self.target
+
+        # Calculate state
+        state = self.get_unit_state(
+            unit, flags, string_changed=not same_source or not same_target
+        )
+        original_state = self.get_unit_state(unit, None)
 
         # Monolingual files handling (without target change)
         if (
             not created
             and state != STATE_READONLY
             and unit.template is not None
-            and target == self.target
+            and same_target
         ):
             if not same_source and state in (STATE_TRANSLATED, STATE_APPROVED):
-                if self.previous_source == self.source and self.fuzzy:
+                if self.previous_source == source and self.fuzzy:
                     # Source change was reverted
+                    source_change = self.source
                     previous_source = ""
                     state = STATE_TRANSLATED
                 else:
                     # Store previous source and fuzzy flag for monolingual
-                    if previous_source == "":
-                        previous_source = self.source
+                    if not previous_source:
+                        source_change = previous_source = self.source
                     state = STATE_FUZZY
-            elif self.state in (STATE_FUZZY, STATE_APPROVED):
-                # We should keep calculated flags if translation was
-                # not changed outside
+                self.pending = True
+            elif (
+                self.state == STATE_FUZZY
+                and state == STATE_FUZZY
+                and not previous_source
+            ):
+                # Avoid losing previous source of fuzzy strings
                 previous_source = self.previous_source
-                state = self.state
-                original_state = self.original_state
 
         # Update checks on fuzzy update or on content change
-        same_target = target == self.target
         same_state = state == self.state and flags == self.flags
         same_metadata = (
-            location == self.location and note == self.note and pos == self.position
+            location == self.location
+            and explanation == self.explanation
+            and note == self.note
+            and pos == self.position
+            and not self.pending
         )
         same_data = (
             not created
@@ -683,6 +783,7 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         self.original_state = original_state
         self.position = pos
         self.location = location
+        self.explanation = explanation
         self.flags = flags
         self.source = source
         self.target = target
@@ -690,16 +791,21 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         self.context = context
         self.note = note
         self.previous_source = previous_source
+        self.pending = False
         self.update_priority(save=False)
 
         # Metadata update only, these do not trigger any actions in Weblate and
         # are display only
         if same_data and not same_metadata:
-            self.save(same_content=True, only_save=True)
+            self.save(
+                same_content=True,
+                only_save=True,
+                update_fields=["location", "explanation", "note", "position"],
+            )
             return
 
         # Sanitize number of plurals
-        if self.is_plural:
+        if self.is_plural and not component.file_format_cls.has_multiple_strings:
             self.target = join_plural(self.get_target_plurals())
 
         if created:
@@ -715,16 +821,31 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         if translation.is_template:
             component.updated_sources[self.id] = self
         # Indicate source string change
-        if not same_source and previous_source:
-            Change.objects.create(
-                unit=self,
-                action=Change.ACTION_SOURCE_CHANGE,
-                old=previous_source,
-                target=self.source,
+        if not same_source and source_change:
+            translation.update_changes.append(
+                Change(
+                    unit=self,
+                    action=Change.ACTION_SOURCE_CHANGE,
+                    old=source_change,
+                    target=self.source,
+                )
             )
+        # Track VCS change
+        if not same_data:
+            translation.update_changes.append(
+                self.generate_change(
+                    user=None,
+                    author=None,
+                    change_action=Change.ACTION_STRING_REPO_UPDATE,
+                    check_new=False,
+                    save=False,
+                )
+            )
+
         # Update translation memory if needed
         if (
             self.state >= STATE_TRANSLATED
+            and self.target
             and (not translation.is_source or component.intermediate)
             and (created or not same_source or not same_target)
         ):
@@ -734,10 +855,10 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         """
         Updates state based on flags.
 
-        Mark read only strings:
+        Mark read-only strings:
 
         * Flagged with 'read-only'
-        * Where source string is not translated
+        * Where source string is untranslated
         """
         if "read-only" in self.all_flags or (
             not self.is_source and self.source_unit.state < STATE_TRANSLATED
@@ -784,7 +905,7 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         """
         plurals = self.get_source_plurals()
         singular = plurals[0]
-        if len(plurals) == 1 or "<unused singular" not in singular:
+        if len(plurals) == 1 or not is_unused_string(singular):
             return singular
         return plurals[1]
 
@@ -797,30 +918,47 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         # Split plurals
         ret = split_plural(self.target)
 
-        if plurals is None:
-            plurals = self.translation.plural.number
+        if not self.translation.component.is_multivalue:
+            if plurals is None:
+                plurals = self.translation.plural.number
 
-        # Check if we have expected number of them
-        if len(ret) == plurals:
-            return ret
+            # Check if we have expected number of them
+            if len(ret) == plurals:
+                return ret
 
-        # Pad with empty translations
-        while len(ret) < plurals:
-            ret.append("")
+            # Pad with empty translations
+            while len(ret) < plurals:
+                ret.append("")
 
-        # Delete extra plurals
-        while len(ret) > plurals:
-            del ret[-1]
+            # Delete extra plurals
+            while len(ret) > plurals:
+                del ret[-1]
 
         return ret
 
-    def propagate(self, user, change_action=None, author=None):
+    def propagate(self, user, change_action=None, author=None, request=None):
         """Propagate current translation to all others."""
+        from weblate.trans.models import ContributorAgreement
+
         result = False
         for unit in self.same_source_units:
-            if not user.has_perm("unit.edit", unit):
-                continue
             if unit.target == self.target and unit.state == self.state:
+                continue
+            if user is not None and not user.has_perm("unit.edit", unit):
+                component = unit.translation.component
+                if (
+                    request
+                    and component.agreement
+                    and not ContributorAgreement.objects.has_agreed(user, component)
+                ):
+                    messages.warning(
+                        request,
+                        gettext(
+                            "String could not be propagated to %(component)s because "
+                            "you have not agreed with a contributor agreement."
+                        )
+                        % {"component": component},
+                    )
                 continue
             unit.target = self.target
             unit.state = self.state
@@ -834,6 +972,16 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
             result = True
         return result
 
+    def commit_if_pending(self, author):
+        """Commit possible previous changes on this unit."""
+        if self.pending:
+            change_author = self.get_last_content_change()[0]
+            if change_author != author:
+                # This intentionally discards user - the translating user
+                # has no control on what this does (it can even trigger update
+                # of the repo)
+                self.translation.commit_pending("pending unit", None)
+
     def save_backend(
         self,
         user,
@@ -841,8 +989,10 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         change_action=None,
         author=None,
         run_checks: bool = True,
+        request=None,
     ):
-        """Stores unit to backend.
+        """
+        Stores unit to backend.
 
         Optional user parameters defines authorship of a change.
 
@@ -853,19 +1003,20 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         author = author or user
 
         # Commit possible previous changes on this unit
-        if self.pending:
-            change_author = self.get_last_content_change()[0]
-            if change_author != author:
-                self.translation.commit_pending("pending unit", user, force=True)
+        self.commit_if_pending(author)
 
         # Propagate to other projects
         # This has to be done before changing source for template
         was_propagated = False
         if propagate:
-            was_propagated = self.propagate(user, change_action, author=author)
+            was_propagated = self.propagate(
+                user, change_action, author=author, request=request
+            )
 
         changed = (
-            self.old_unit.state == self.state and self.old_unit.target == self.target
+            self.old_unit["state"] == self.state
+            and self.old_unit["target"] == self.target
+            and self.old_unit["explanation"] == self.explanation
         )
         # Return if there was no change
         # We have to explicitly check for fuzzy flag change on monolingual
@@ -873,7 +1024,7 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         if changed and not was_propagated:
             return False
 
-        update_fields = ["target", "state", "original_state", "pending"]
+        update_fields = ["target", "state", "original_state", "pending", "explanation"]
         if self.is_source and not self.translation.component.intermediate:
             self.source = self.target
             update_fields.extend(["source"])
@@ -881,7 +1032,7 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         # Unit is pending for write
         self.pending = True
         # Update translated flag (not fuzzy and at least one translation)
-        translation = bool(max(self.get_target_plurals()))
+        translation = any(self.get_target_plurals())
         if self.state >= STATE_TRANSLATED and not translation:
             self.state = STATE_EMPTY
         elif self.state == STATE_EMPTY and translation:
@@ -896,32 +1047,46 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         )
 
         # Generate Change object for this change
-        self.generate_change(user or author, author, change_action)
+        change = self.generate_change(user or author, author, change_action)
 
-        if change_action not in (
+        if change.action not in (
             Change.ACTION_UPLOAD,
             Change.ACTION_AUTO,
             Change.ACTION_BULK_EDIT,
         ):
+            old_translated = self.translation.stats.translated
+
             # Update translation stats
             self.translation.invalidate_cache()
 
             # Update user stats
-            author.profile.increase_count("translated")
+            change.author.profile.increase_count("translated")
+
+            # Force committing on completing translation
+            translated = self.translation.stats.translated
+            if old_translated < translated and translated == self.translation.stats.all:
+                Change.objects.create(
+                    translation=self.translation,
+                    action=Change.ACTION_COMPLETE,
+                    user=change.user,
+                    author=change.author,
+                )
 
         # Update related source strings if working on a template
-        if self.translation.is_template and self.old_unit.target != self.target:
-            self.update_source_units(self.old_unit.target, user or author, author)
+        if self.translation.is_template and self.old_unit["target"] != self.target:
+            self.update_source_units(self.old_unit["target"], user or author, author)
 
         return True
 
     def update_source_units(self, previous_source, user, author):
-        """Update source for units withing same component.
+        """
+        Update source for units within same component.
 
         This is needed when editing template translation for monolingual formats.
         """
         # Find relevant units
-        for unit in self.unit_set.exclude(id=self.id).prefetch_bulk():
+        for unit in self.unit_set.exclude(id=self.id).prefetch().prefetch_bulk():
+            unit.commit_if_pending(author)
             # Update source and number of words
             unit.source = self.target
             unit.num_words = self.num_words
@@ -957,10 +1122,17 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
             # Invalidate stats
             unit.translation.invalidate_cache()
 
-    def generate_change(self, user, author, change_action, check_new=True):
+    def generate_change(
+        self, user, author, change_action, check_new: bool = True, save: bool = True
+    ):
         """Create Change entry for saving unit."""
         # Notify about new contributor
-        if check_new and not self.translation.change_set.filter(user=user).exists():
+        if (
+            check_new
+            and user is not None
+            and not user.is_bot
+            and not self.translation.change_set.filter(user=user).exists()
+        ):
             Change.objects.create(
                 unit=self,
                 action=Change.ACTION_NEW_CONTRIBUTOR,
@@ -973,26 +1145,33 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
             action = change_action
         elif self.state == STATE_FUZZY:
             action = Change.ACTION_MARKED_EDIT
-        elif self.old_unit.state >= STATE_FUZZY:
+        elif self.old_unit["state"] >= STATE_FUZZY:
             if self.state == STATE_APPROVED:
                 action = Change.ACTION_APPROVE
             else:
                 action = Change.ACTION_CHANGE
+        elif self.state == STATE_APPROVED:
+            action = Change.ACTION_APPROVE
         else:
-            if self.state == STATE_APPROVED:
-                action = Change.ACTION_APPROVE
-            else:
-                action = Change.ACTION_NEW
+            action = Change.ACTION_NEW
 
         # Create change object
-        Change.objects.create(
+        change = Change(
             unit=self,
             action=action,
             user=user,
             author=author,
             target=self.target,
-            old=self.old_unit.target,
+            old=self.old_unit["target"],
+            details={
+                "state": self.state,
+                "old_state": self.old_unit["state"],
+                "source": self.source,
+            },
         )
+        if save:
+            change.save(force_insert=True)
+        return change
 
     @cached_property
     def suggestions(self):
@@ -1012,7 +1191,7 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
 
     @property
     def all_checks_names(self):
-        return {check.check for check in self.all_checks}
+        return {check.name for check in self.all_checks}
 
     @property
     def dismissed_checks(self):
@@ -1043,53 +1222,50 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
             if not comment.resolved and comment.unit_id == self.id
         ]
 
-    def run_checks(self, propagate: Optional[bool] = None):  # noqa: C901
+    def run_checks(self, propagate: bool | None = None):  # noqa: C901
         """Update checks for this unit."""
-        needs_propagate = bool(propagate)
-
         src = self.get_source_plurals()
         tgt = self.get_target_plurals()
 
         old_checks = self.all_checks_names
         create = []
 
-        if self.translation.component.is_glossary:
-            # We might eventually run some checks on glossary
-            checks = {}
-            meth = "check_source"
-            args = src, self
-        elif self.is_source:
+        if self.is_source:
             checks = CHECKS.source
             meth = "check_source"
             args = src, self
         else:
-            if self.readonly:
-                checks = {}
-            else:
-                checks = CHECKS.target
+            checks = {} if self.readonly else CHECKS.target
             meth = "check_target"
             args = src, tgt, self
+        if self.translation.component.is_glossary:
+            # We might eventually run some checks on glossary
+            checks = {}
 
         # Run all checks
+        if propagate is True:
+            propagated_units = self.same_source_units
+        else:
+            propagated_units = Unit.objects.none()
         for check, check_obj in checks.items():
             # Does the check fire?
             if getattr(check_obj, meth)(*args):
                 if check in old_checks:
                     # We already have this check
                     old_checks.remove(check)
-                    # Propagation is handled in
-                    # weblate.checks.models.remove_complimentary_checks
+                    # Propagation is handled later in this method
                 else:
                     # Create new check
-                    create.append(Check(unit=self, dismissed=False, check=check))
-                    needs_propagate |= check_obj.propagates
+                    create.append(Check(unit=self, dismissed=False, name=check))
+                    if check_obj.propagates:
+                        propagated_units |= check_obj.get_propagated_units(self)
 
         if create:
             Check.objects.bulk_create(create, batch_size=500, ignore_conflicts=True)
 
         # Propagate checks which need it (for example consistency)
-        if (needs_propagate and propagate is not False) or propagate is True:
-            for unit in self.same_source_units:
+        if propagate is not False and propagated_units:
+            for unit in propagated_units:
                 try:
                     # Ensure we get a fresh copy of checks
                     # It might be modified meanwhile by propagating to other units
@@ -1105,17 +1281,28 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
 
         # Delete no longer failing checks
         if old_checks:
-            Check.objects.filter(unit=self, check__in=old_checks).delete()
-            propagated_old_checks = [
-                name for name in old_checks if CHECKS[name].propagates
-            ]
-            if propagated_old_checks:
-                Check.objects.filter(
-                    unit__in=self.same_source_units, check__in=propagated_old_checks
-                ).delete()
-                for other in self.same_source_units:
-                    other.translation.invalidate_cache()
-                    other.clear_checks_cache()
+            propagated_units = Unit.objects.none()
+            Check.objects.filter(unit=self, name__in=old_checks).delete()
+            for check_name in old_checks:
+                try:
+                    check_obj = CHECKS[check_name]
+                except KeyError:
+                    # Skip disabled/removed checks
+                    continue
+                if check_obj.propagates:
+                    propagated_units = check_obj.get_propagated_units(
+                        self, self.old_unit["target"]
+                    )
+                    values = {
+                        check_obj.get_propagated_value(other)
+                        for other in propagated_units
+                    }
+                    if len(values) == 1:
+                        for other in propagated_units:
+                            other.check_set.filter(name=check_name).delete()
+                            if other.translation != self.translation:
+                                other.translation.invalidate_cache()
+                            other.clear_checks_cache()
 
         # Trigger source checks on target check update (multiple failing checks)
         if (create or old_checks) and not self.is_source:
@@ -1129,7 +1316,7 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         # This is always preset as it is used in top of this method
         self.clear_checks_cache()
 
-        if not self.is_batch_update:
+        if not self.is_batch_update and (create or old_checks):
             self.translation.invalidate_cache()
 
     def nearby(self, count):
@@ -1149,7 +1336,7 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
             return []
         key = self.translation.keys_cache_key
         key_list = cache.get(key)
-        if key_list is None or self.pk not in key_list or True:
+        if key_list is None or self.pk not in key_list:
             key_list = list(
                 self.translation.unit_set.order_by("context").values_list(
                     "id", flat=True
@@ -1182,14 +1369,22 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         change_action=None,
         propagate: bool = True,
         author=None,
+        request=None,
+        add_alternative: bool = False,
     ):
         """
         Store new translation of a unit.
 
         Propagation is currently disabled on import.
         """
+        component = self.translation.component
+
+        # Force flushing checks cache
+        self.invalidate_checks_cache()
+
         # Fetch current copy from database and lock it for update
-        self.old_unit = Unit.objects.select_for_update().get(pk=self.pk)
+        old_unit = Unit.objects.select_for_update().get(pk=self.pk)
+        self.store_old_unit(old_unit)
 
         # Handle simple string units
         if isinstance(new_target, str):
@@ -1199,9 +1394,16 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         if not self.translation.is_template:
             new_target, self.fixups = fix_target(new_target, self)
 
+        # Handle managing alternative translations
+        if add_alternative:
+            new_target.append("")
+        elif component.is_multivalue:
+            new_target = [target for target in new_target if target]
+            if not new_target:
+                new_target = [""]
         # Update unit and save it
         self.target = join_plural(new_target)
-        not_empty = bool(max(new_target))
+        not_empty = any(new_target)
 
         # Newlines fixup
         if "dos-eol" in self.all_flags:
@@ -1213,49 +1415,80 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
             self.state = STATE_EMPTY
         self.original_state = self.state
         saved = self.save_backend(
-            user, change_action=change_action, propagate=propagate, author=author
+            user,
+            change_action=change_action,
+            propagate=propagate,
+            author=author,
+            request=request,
         )
 
         # Enforced checks can revert the state to needs editing (fuzzy)
         if (
             self.state >= STATE_TRANSLATED
-            and self.translation.component.enforced_checks
-            and self.all_checks_names & set(self.translation.component.enforced_checks)
+            and component.enforced_checks
+            and self.all_checks_names & set(component.enforced_checks)
         ):
             self.state = self.original_state = STATE_FUZZY
             self.save(run_checks=False, same_content=True, update_fields=["state"])
 
         if (
-            propagate
-            and user
-            and self.target != self.old_unit.target
+            user
+            and self.target != self.old_unit["target"]
+            and any(self.get_target_plurals())
+            and any(self.get_source_plurals())
             and self.state >= STATE_TRANSLATED
-            and self.translation.component.is_glossary
+            and not component.is_glossary
         ):
             transaction.on_commit(
                 lambda: handle_unit_translation_change.delay(self.id, user.id)
             )
 
+        if change_action == Change.ACTION_AUTO:
+            label = component.project.label_set.get_or_create(
+                name=gettext_noop("Automatically translated"),
+                defaults={"color": "yellow"},
+            )[0]
+            self.labels.add(label)
+        else:
+            self.labels.through.objects.filter(
+                unit=self, label__name="Automatically translated"
+            ).delete()
+
         return saved
 
     def get_all_flags(self, override=None):
         """Return union of own and component flags."""
+        # Validate flags from the unit to avoid crash
+        try:
+            unit_flags = Flags(override or self.flags)
+        except ParseException:
+            unit_flags = None
+
+        # Ordering is important here as that defines overriding
         return Flags(
+            # Base on translation + component flags
             self.translation.all_flags,
-            self.extra_flags,
+            # Apply unit flags from the file format
+            unit_flags,
             # The source_unit is None before saving the object for the first time
             getattr(self.source_unit, "extra_flags", ""),
-            override or self.flags,
+            # This unit flag overrides
+            self.extra_flags,
         )
 
     @cached_property
     def all_flags(self):
         return self.get_all_flags()
 
+    def get_unit_flags(self):
+        return Flags(self.extra_flags)
+
     @cached_property
     def edit_mode(self):
-        """Returns syntax higlighting mode for Prismjs."""
+        """Returns syntax highlighting mode for Prismjs."""
         flags = self.all_flags
+        if "icu-message-format" in flags:
+            return "icu-message-format"
         if "rst-text" in flags:
             return "rest"
         if "md-text" in flags:
@@ -1293,7 +1526,8 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
 
     @property
     def checksum(self):
-        """Return unique hex identifier.
+        """
+        Return unique hex identifier.
 
         It's unsigned representation of id_hash in hex.
         """
@@ -1304,8 +1538,15 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         return (
             Unit.objects.same(self)
             .prefetch_full()
-            .filter(translation__component__allow_translation_propagation=True)
+            .filter(
+                translation__component__allow_translation_propagation=True,
+                translation__plural_id=self.translation.plural_id,
+            )
         )
+
+    @cached_property
+    def same_target_units(self):
+        return Unit.objects.same_target(self)
 
     def get_max_length(self):
         """Returns maximal translation length."""
@@ -1332,9 +1573,7 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
 
     @cached_property
     def content_hash(self):
-        if self.translation.component.template:
-            return calculate_hash(self.source, self.context)
-        return self.id_hash
+        return calculate_hash(self.source, self.context)
 
     @cached_property
     def recent_content_changes(self):
@@ -1346,50 +1585,65 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
         return self.change_set.content().select_related("author").order_by("-timestamp")
 
     def get_last_content_change(self, silent=False):
-        """Wrapper to get last content change metadata.
+        """
+        Wrapper to get last content change metadata.
 
-        Used when commiting pending changes, needs to handle and report inconsistencies
+        Used when committing pending changes, needs to handle and report inconsistencies
         from past releases.
         """
         from weblate.auth.models import get_anonymous
 
         try:
             change = self.recent_content_changes[0]
-            return change.author or get_anonymous(), change.timestamp
         except IndexError:
             return get_anonymous(), timezone.now()
+        return change.author or get_anonymous(), change.timestamp
 
-    def get_locations(self):
+    def get_locations(self) -> Generator[tuple[str, str, str], None, None]:
         """Returns list of location filenames."""
         for location in self.location.split(","):
             location = location.strip()
-            if location == "":
+            if not location:
                 continue
             location_parts = location.split(":")
             if len(location_parts) == 2:
                 filename, line = location_parts
             else:
                 filename = location_parts[0]
-                line = 0
+                line = "0"
             yield location, filename, line
 
     @cached_property
     def all_labels(self):
         if self.is_source:
             return self.labels.all()
-        return self.source_unit.all_labels
+        return self.source_unit.all_labels | self.labels.all()
 
     def get_flag_actions(self):
-        flags = Flags(self.extra_flags)
+        flags = self.all_flags
+        translation = self.translation
+        component = translation.component
         result = []
-        if self.is_source or self.translation.component.is_glossary:
+        if self.is_source:
             if "read-only" in flags:
-                result.append(
-                    ("removeflag", "read-only", gettext("Unmark as read-only"))
-                )
+                if (
+                    "read-only" not in translation.all_flags
+                    and "read-only" not in component.all_flags
+                ):
+                    result.append(
+                        ("removeflag", "read-only", gettext("Unmark as read-only"))
+                    )
             else:
                 result.append(("addflag", "read-only", gettext("Mark as read-only")))
-        if self.translation.component.is_glossary:
+        if component.is_glossary:
+            if "read-only" in self.source_unit.get_unit_flags():
+                result.append(
+                    ("removeflag", "read-only", gettext("Unmark as untranslatable"))
+                )
+            else:
+                result.append(
+                    ("addflag", "read-only", gettext("Mark as untranslatable"))
+                )
             if "forbidden" in flags:
                 result.append(
                     (
@@ -1423,3 +1677,39 @@ class Unit(FastDeleteModelMixin, models.Model, LoggerMixin):
                     )
                 )
         return result
+
+    def invalidate_related_cache(self):
+        # Invalidate stats counts
+        self.translation.invalidate_cache()
+        # Invalidate unit cached properties
+        for key in ["all_comments", "suggestions"]:
+            if key in self.__dict__:
+                del self.__dict__[key]
+
+    def update_explanation(self, explanation: str, user, save: bool = True):
+        """Update glossary explanation."""
+        self.explanation = explanation
+        file_format_support = (
+            self.translation.component.file_format_cls.supports_explanation
+        )
+        if file_format_support:
+            if self.is_source:
+                units = self.unit_set.exclude(id=self.id)
+                units.update(pending=True)
+            else:
+                units = [self]
+                self.pending = True
+        if save:
+            self.save(update_fields=["explanation", "pending"], only_save=True)
+
+        if not file_format_support:
+            return
+
+        for unit in units:
+            unit.generate_change(
+                user=user,
+                author=user,
+                change_action=Change.ACTION_EXPLANATION,
+                check_new=False,
+                save=True,
+            )

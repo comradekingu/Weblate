@@ -6,18 +6,18 @@
   {% if "forbidden" in item.all_flags %}
     <tr class="glossary-embed danger" title="{% trans "This translation is forbidden." %}">
   {% elif "read-only" in item.all_flags %}
-    <tr class="glossary-embed warning" title="{% trans "This term should not be translated." %}">
+    <tr class="glossary-embed clickable-row warning" title="{% trans "This term should not be translated." %}">
   {% else %}
     <tr class="glossary-embed clickable-row" title="{% trans "Copy word into translation" %}">
   {% endif %}
-    <td>{{ item.source }}</td>
+    <td class="source">{{ item.source }}</td>
     <td class="target">
       {% if "forbidden" in item.all_flags %}
         <span class="red forbidden-term">
           {% icon "cancel.svg" %}
         </span>
       {% endif %}
-      {% format_translation item.target unit.translation.language unit.translation.plural simple=True %}
+      {% format_unit_target unit value=item.target simple=True %}
     </td>
     <td>{% include "snippets/glossary-badge.html" with glossary=item.translation %}</td>
     <td><a href="{{ item.get_absolute_url }}" class="btn btn-link btn-xs" title="{% trans "Edit glossary term" %}">{% icon "pencil.svg" %}</a>
@@ -27,6 +27,15 @@
         <td colspan="4">
           <em>
           {{ item.note }}
+          </em>
+        </td>
+      </tr>
+    {% endif %}
+    {% if not item.is_source and item.explanation %}
+      <tr>
+        <td colspan="4">
+          <em>
+          {{ item.explanation|markdown }}
           </em>
         </td>
       </tr>

@@ -1,37 +1,21 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.http import Http404
 from django.http.response import HttpResponseServerError
 from django.shortcuts import get_object_or_404
-from django.utils.translation import gettext as _
+from django.utils.translation import gettext
 from django.views.decorators.http import require_POST
 
 from weblate.checks.flags import Flags
-from weblate.lang.models import Language
 from weblate.trans.forms import ContextForm, MatrixLanguageForm
-from weblate.trans.models import Unit
+from weblate.trans.models import Component, Unit
 from weblate.trans.util import redirect_next, render
 from weblate.utils import messages
-from weblate.utils.views import get_component, show_form_errors
+from weblate.utils.views import parse_path, show_form_errors
 
 
 @require_POST
@@ -44,11 +28,16 @@ def edit_context(request, pk):
     do_add = "addflag" in request.POST
     if do_add or "removeflag" in request.POST:
         if not request.user.has_perm("unit.flag", unit.translation):
-            raise PermissionDenied()
+            raise PermissionDenied
         flag = request.POST.get("addflag", request.POST.get("removeflag"))
-        if flag == "terminology" and not unit.is_source:
+        flags = unit.get_unit_flags()
+        if (
+            flag in ("terminology", "forbidden", "read-only")
+            and not unit.is_source
+            and flag not in flags
+        ):
             unit = unit.source_unit
-        flags = Flags(unit.extra_flags)
+            flags = Flags(unit.extra_flags)
         if do_add:
             flags.merge(flag)
         else:
@@ -58,28 +47,27 @@ def edit_context(request, pk):
             unit.extra_flags = new_flags
             unit.save(same_content=True, update_fields=["extra_flags"])
     else:
-
         if not request.user.has_perm("source.edit", unit.translation):
-            raise PermissionDenied()
+            raise PermissionDenied
 
         form = ContextForm(request.POST, instance=unit, user=request.user)
 
         if form.is_valid():
             form.save()
         else:
-            messages.error(request, _("Failed to change additional string info!"))
+            messages.error(request, gettext("Could not change additional string info!"))
             show_form_errors(request, form)
 
     return redirect_next(request.POST.get("next"), unit.get_absolute_url())
 
 
 @login_required
-def matrix(request, project, component):
+def matrix(request, path):
     """Matrix view of all strings."""
-    obj = get_component(request, project, component)
+    obj = parse_path(request, path, (Component,))
 
     show = False
-    languages = None
+    translations = None
     language_codes = None
 
     if "lang" in request.GET:
@@ -89,8 +77,14 @@ def matrix(request, project, component):
         form = MatrixLanguageForm(obj)
 
     if show:
-        languages = Language.objects.filter(code__in=form.cleaned_data["lang"]).order()
-        language_codes = ",".join(languages.values_list("code", flat=True))
+        translations = (
+            obj.translation_set.filter(language__code__in=form.cleaned_data["lang"])
+            .select_related("language")
+            .order()
+        )
+        language_codes = ",".join(
+            translation.language.code for translation in translations
+        )
 
     return render(
         request,
@@ -98,7 +92,8 @@ def matrix(request, project, component):
         {
             "object": obj,
             "project": obj.project,
-            "languages": languages,
+            "component": obj,
+            "translations": translations,
             "language_codes": language_codes,
             "languages_form": form,
         },
@@ -106,9 +101,9 @@ def matrix(request, project, component):
 
 
 @login_required
-def matrix_load(request, project, component):
+def matrix_load(request, path):
     """Backend for matrix view of all strings."""
-    obj = get_component(request, project, component)
+    obj = parse_path(request, path, (Component,))
 
     try:
         offset = int(request.GET.get("offset", ""))

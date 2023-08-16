@@ -1,78 +1,27 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+from __future__ import annotations
 
 import os
-from typing import Optional
 
 from django.urls import reverse
 from django.utils.functional import cached_property
 
 from weblate.accounts.avatar import get_user_display
 from weblate.logger import LOGGER
+from weblate.utils.data import data_dir
 
 
 class URLMixin:
     """Mixin for models providing standard shortcut API for few standard URLs."""
 
-    _reverse_url_name: Optional[str] = None
-
-    def get_reverse_url_kwargs(self):
-        """Return kwargs for URL reversing."""
-        raise NotImplementedError()
-
-    def reverse_url(self, name=None):
-        """Generic reverser for URL."""
-        if name is None:
-            urlname = self._reverse_url_name
-        else:
-            urlname = f"{name}_{self._reverse_url_name}"
-        return reverse(urlname, kwargs=self.get_reverse_url_kwargs())
+    def get_url_path(self):
+        raise NotImplementedError
 
     def get_absolute_url(self):
-        return self.reverse_url()
-
-    def get_commit_url(self):
-        return self.reverse_url("commit")
-
-    def get_update_url(self):
-        return self.reverse_url("update")
-
-    def get_push_url(self):
-        return self.reverse_url("push")
-
-    def get_reset_url(self):
-        return self.reverse_url("reset")
-
-    def get_cleanup_url(self):
-        return self.reverse_url("cleanup")
-
-    def get_file_sync_url(self):
-        return self.reverse_url("file_sync")
-
-    def get_lock_url(self):
-        return self.reverse_url("lock")
-
-    def get_unlock_url(self):
-        return self.reverse_url("unlock")
-
-    def get_remove_url(self):
-        return self.reverse_url("remove")
+        return reverse("show", kwargs={"path": self.get_url_path()})
 
 
 class LoggerMixin:
@@ -87,27 +36,27 @@ class LoggerMixin:
 
     def log_debug(self, msg, *args):
         self.log_hook("DEBUG", msg, *args)
-        return LOGGER.debug(": ".join((self.full_slug, msg)), *args)
+        return LOGGER.debug(f"{self.full_slug}: {msg}", *args)
 
     def log_info(self, msg, *args):
         self.log_hook("INFO", msg, *args)
-        return LOGGER.info(": ".join((self.full_slug, msg)), *args)
+        return LOGGER.info(f"{self.full_slug}: {msg}", *args)
 
     def log_warning(self, msg, *args):
         self.log_hook("WARNING", msg, *args)
-        return LOGGER.warning(": ".join((self.full_slug, msg)), *args)
+        return LOGGER.warning(f"{self.full_slug}: {msg}", *args)
 
     def log_error(self, msg, *args):
         self.log_hook("ERROR", msg, *args)
-        return LOGGER.error(": ".join((self.full_slug, msg)), *args)
+        return LOGGER.error(f"{self.full_slug}: {msg}", *args)
 
 
-class PathMixin(LoggerMixin):
+class PathMixin(LoggerMixin, URLMixin):
     """Mixin for models with path manipulations."""
 
     def _get_path(self):
         """Actual calculation of path."""
-        raise NotImplementedError()
+        return os.path.join(data_dir("vcs"), *self.get_url_path())
 
     @cached_property
     def full_path(self):
@@ -118,7 +67,7 @@ class PathMixin(LoggerMixin):
             del self.__dict__["full_path"]
 
     def check_rename(self, old, validate=False):
-        """Detect slug changes and possibly renames underlaying directory."""
+        """Detect slug changes and possibly renames underlying directory."""
         # No moving for links
         if getattr(self, "is_repo_link", False) or getattr(old, "is_repo_link", False):
             return

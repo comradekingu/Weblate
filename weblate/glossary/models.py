@@ -1,21 +1,6 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 import re
 from itertools import chain
@@ -70,28 +55,31 @@ def get_glossary_terms(unit):
     source_language = component.source_language
 
     units = (
-        Unit.objects.prefetch().select_related("source_unit").order_by(Lower("source"))
+        Unit.objects.prefetch()
+        .select_related("source_unit")
+        .order_by("translation__component__priority", Lower("source"))
     )
     if language == source_language:
         return units.none()
 
     # Build complete source for matching
-    parts = [""]
-    for text in unit.get_source_plurals() + [unit.context]:
+    parts = []
+    for text in unit.get_source_plurals():
         text = text.lower().strip()
         if text:
             parts.append(text)
-    parts.append("")
     source = PLURAL_SEPARATOR.join(parts)
+
+    uses_ngram = source_language.uses_ngram()
 
     matches = set()
     automaton = project.glossary_automaton
     if automaton.kind == ahocorasick.AHOCORASICK:
-
         # Extract terms present in the source
         for end, term in automaton.iter(source):
-            if NON_WORD_RE.match(source[end - len(term)]) and NON_WORD_RE.match(
-                source[end + 1]
+            if uses_ngram or (
+                (end + 1 == len(term) or NON_WORD_RE.match(source[end - len(term)]))
+                and (end + 1 == len(source) or NON_WORD_RE.match(source[end + 1]))
             ):
                 matches.add(term)
 

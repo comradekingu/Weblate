@@ -1,21 +1,7 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Test for translation models."""
 import os
 
@@ -61,7 +47,7 @@ class ComponentTest(RepoTestCase):
             if units:
                 self.assertTrue(
                     translation.unit_set.filter(source=unit).exists(),
-                    "Unit not found, all units: {}".format(
+                    msg="Unit not found, all units: {}".format(
                         "\n".join(translation.unit_set.values_list("source", flat=True))
                     ),
                 )
@@ -202,8 +188,8 @@ class ComponentTest(RepoTestCase):
         self.verify_component(component, 2, "cs", 4)
 
     def test_create_android_broken(self):
-        component = self.create_android(suffix="-broken")
-        self.verify_component(component, 1, "en", 3)
+        with self.assertRaises(FileParseError):
+            self.create_android(suffix="-broken")
 
     def test_create_json(self):
         component = self.create_json()
@@ -241,6 +227,12 @@ class ComponentTest(RepoTestCase):
         unit = component.source_translation.unit_set.get(context="hello")
         self.assertEqual(unit.source, "Hello world!\n")
         self.assertEqual(unit.target, "Hello, world!\n")
+
+    def test_component_screenshot_filemask(self):
+        component = self._create_component(
+            "json", "intermediate/*.json", screenshot_filemask="screenshots/*.png"
+        )
+        self.assertEqual(component.screenshot_filemask, "screenshots/*.png")
 
     def test_switch_json_intermediate(self):
         component = self._create_component(
@@ -461,9 +453,13 @@ class ComponentTest(RepoTestCase):
         component = self.create_component()
         self.assertEqual(Check.objects.count(), 3)
         check = Check.objects.all()[0]
-        component.check_flags = f"ignore-{check.check}"
+        component.check_flags = f"ignore-{check.name}"
         component.save()
         self.assertEqual(Check.objects.count(), 0)
+
+
+class AutoAddonTest(RepoTestCase):
+    CREATE_GLOSSARIES = True
 
     @override_settings(
         DEFAULT_ADDONS={
@@ -487,11 +483,25 @@ class ComponentTest(RepoTestCase):
         }
     )
     def test_create_autoaddon(self):
+        self.configure_mt()
         component = self.create_idml()
         self.assertEqual(
             set(component.addon_set.values_list("name", flat=True)),
             {"weblate.flags.same_edit", "weblate.autotranslate.autotranslate"},
         )
+
+    @override_settings(
+        DEFAULT_ADDONS={
+            "weblate.gettext.msgmerge": {},
+        }
+    )
+    def test_create_autoaddon_msgmerge(self):
+        component = self.create_po(new_base="po/project.pot")
+        self.assertEqual(
+            set(component.addon_set.values_list("name", flat=True)),
+            {"weblate.gettext.msgmerge"},
+        )
+        self.assertEqual(component.count_repo_outgoing, 1)
 
 
 class ComponentDeleteTest(RepoTestCase):
@@ -502,7 +512,7 @@ class ComponentDeleteTest(RepoTestCase):
         self.assertTrue(os.path.exists(component.full_path))
         component.delete()
         self.assertFalse(os.path.exists(component.full_path))
-        self.assertEqual(1, Component.objects.count())
+        self.assertEqual(0, Component.objects.count())
 
     def test_delete_link(self):
         component = self.create_link()
@@ -525,7 +535,7 @@ class ComponentDeleteTest(RepoTestCase):
         unit = Unit.objects.filter(check__isnull=False).first().source_unit
         unit.source = "Test..."
         unit.save(update_fields=["source"])
-        unit.check_set.filter(check="ellipisis").delete()
+        unit.check_set.filter(name="ellipisis").delete()
         component.delete()
 
 
@@ -572,6 +582,69 @@ class ComponentChangeTest(RepoTestCase):
         component.repo = component.linked_component.repo
         component.save()
 
+    def test_repo_link_generation_bitbucket(self):
+        """Test changing repo attribute to check repo generation links."""
+        component = self.create_component()
+        component.repo = "ssh://git@bitbucket.org/marcus/project-x.git"
+        result = component.get_bitbucket_git_repoweb_template()
+        self.assertEqual(
+            result,
+            "https://bitbucket.org/marcus/project-x/blob/{branch}/{filename}#{line}",
+        )
+        component.repo = "git@bitbucket.org:marcus/project-x.git"
+        result = component.get_bitbucket_git_repoweb_template()
+        self.assertEqual(
+            result,
+            "https://bitbucket.org/marcus/project-x/blob/{branch}/{filename}#{line}",
+        )
+
+    def test_repo_link_generation_github(self):
+        """Test changing repo attribute to check repo generation links."""
+        component = self.create_component()
+        component.repo = "git://github.com/marcus/project-x.git"
+        result = component.get_github_repoweb_template()
+        self.assertEqual(
+            result,
+            "https://github.com/marcus/project-x/blob/{branch}/{filename}#L{line}",
+        )
+        component.repo = "git@github.com:marcus/project-x.git"
+        result = component.get_github_repoweb_template()
+        self.assertEqual(
+            result,
+            "https://github.com/marcus/project-x/blob/{branch}/{filename}#L{line}",
+        )
+
+    def test_repo_link_generation_pagure(self):
+        """Test changing repo attribute to check repo generation links."""
+        component = self.create_component()
+        component.repo = "https://pagure.io/f/ATEST"
+        result = component.get_pagure_repoweb_template()
+        self.assertEqual(
+            result, "https://pagure.io/f/ATEST/blob/{branch}/f/{filename}/#_{line}"
+        )
+
+    def test_repo_link_generation_azure(self):
+        """Test changing repo attribute to check repo generation links."""
+        component = self.create_component()
+        component.repo = "f@vs-ssh.visualstudio.com:v3/f/c/ATEST"
+        result = component.get_azure_repoweb_template()
+        self.assertEqual(
+            result,
+            "https://dev.azure.com/f/c/_git/ATEST/blob/{branch}/{filename}#L{line}",
+        )
+        component.repo = "git@ssh.dev.azure.com:v3/f/c/ATEST"
+        result = component.get_azure_repoweb_template()
+        self.assertEqual(
+            result,
+            "https://dev.azure.com/f/c/_git/ATEST/blob/{branch}/{filename}#L{line}",
+        )
+        component.repo = "https://f.visualstudio.com/c/_git/ATEST"
+        result = component.get_azure_repoweb_template()
+        self.assertEqual(
+            result,
+            "https://dev.azure.com/f/c/_git/ATEST/blob/{branch}/{filename}#L{line}",
+        )
+
     def test_change_project(self):
         component = self.create_component()
 
@@ -596,7 +669,7 @@ class ComponentChangeTest(RepoTestCase):
         self.assertNotEqual(old_path, new_path)
 
     def test_change_to_mono(self):
-        """Test swtiching to monolingual format on the fly."""
+        """Test switching to monolingual format on the fly."""
         component = self._create_component("po", "po-mono/*.po")
         self.assertEqual(component.translation_set.count(), 4)
         component.file_format = "po-mono"
@@ -615,7 +688,11 @@ class ComponentChangeTest(RepoTestCase):
 
         change = component.change_set.get(action=Change.ACTION_LOCK)
         self.assertEqual(change.details, {"auto": True})
-        self.assertEqual(change.get_action_display(), "Component automatically locked")
+        self.assertEqual(change.get_action_display(), "Component locked")
+        self.assertEqual(
+            change.get_details_display(),
+            "The component was automatically locked because of an alert.",
+        )
 
         component.add_alert("UpdateFailure")
         self.assertTrue(component.locked)
@@ -653,7 +730,16 @@ class ComponentValidationTest(RepoTestCase):
         self.component.filemask = "foo/x.po"
         self.assertRaisesMessage(
             ValidationError,
-            "Filemask does not contain * as a language placeholder!",
+            "File mask does not contain * as a language placeholder!",
+            self.component.full_clean,
+        )
+
+    def test_screenshot_filemask(self):
+        """Invalid screenshot filemask."""
+        self.component.screenshot_filemask = "foo/x.png"
+        self.assertRaisesMessage(
+            ValidationError,
+            "File mask does not contain * as a language placeholder!",
             self.component.full_clean,
         )
 
@@ -662,7 +748,7 @@ class ComponentValidationTest(RepoTestCase):
         self.component.filemask = "foo/*.po"
         self.assertRaisesMessage(
             ValidationError,
-            "The filemask did not match any files.",
+            "The file mask did not match any files.",
             self.component.full_clean,
         )
 
@@ -690,7 +776,7 @@ class ComponentValidationTest(RepoTestCase):
         self.component.push = ""
         self.assertRaisesMessage(
             ValidationError,
-            "Invalid link to a Weblate project, " "use weblate://project/component.",
+            "Invalid link to a Weblate project, use weblate://project/component.",
             self.component.full_clean,
         )
 
@@ -700,7 +786,7 @@ class ComponentValidationTest(RepoTestCase):
         self.component.push = ""
         self.assertRaisesMessage(
             ValidationError,
-            "Invalid link to a Weblate project, " "use weblate://project/component.",
+            "Invalid link to a Weblate project, use weblate://project/component.",
             self.component.full_clean,
         )
 
@@ -744,7 +830,7 @@ class ComponentValidationTest(RepoTestCase):
         self.component.file_format = "po"
         self.component.save()
 
-        # Clean class cache, pylint: disable=protected-access
+        # Clean class cache
         del self.component.__dict__["file_format"]
 
         # With correct format it should validate
@@ -768,8 +854,8 @@ class ComponentValidationTest(RepoTestCase):
         self.assertRaisesMessage(
             ValidationError,
             "The language code for "
-            "Solution/Project/Resources.resx"
-            " was empty, please check the filemask.",
+            '"Solution/Project/Resources.resx"'
+            " is empty, please check the file mask.",
             component.clean_lang_codes,
             [
                 "Solution/Project/Resources.resx",
@@ -839,7 +925,7 @@ class ComponentErrorTest(RepoTestCase):
         self.component.drop_template_store_cache()
 
         with self.assertRaises(FileParseError):
-            self.component.template_store
+            self.component.template_store  # noqa: B018
 
         with self.assertRaises(ValidationError):
             self.component.clean()
@@ -848,7 +934,7 @@ class ComponentErrorTest(RepoTestCase):
         translation = self.component.translation_set.get(language_code="cs")
         translation.filename = "foo.bar"
         with self.assertRaises(FileParseError):
-            translation.store
+            translation.store  # noqa: B018
         with self.assertRaises(ValidationError):
             translation.clean()
 
@@ -858,7 +944,7 @@ class ComponentErrorTest(RepoTestCase):
             handle.write("CHANGE")
         translation = self.component.translation_set.get(language_code="cs")
         with self.assertRaises(FileParseError):
-            translation.store
+            translation.store  # noqa: B018
         with self.assertRaises(ValidationError):
             translation.clean()
 
@@ -869,7 +955,7 @@ class ComponentErrorTest(RepoTestCase):
         self.component.drop_template_store_cache()
 
         with self.assertRaises(FileParseError):
-            self.component.template_store
+            self.component.template_store  # noqa: B018
         with self.assertRaises(ValidationError):
             self.component.clean()
 

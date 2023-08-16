@@ -1,21 +1,6 @@
+# Copyright © Michal Čihař <michal@weblate.org>
 #
-# Copyright © 2012 - 2021 Michal Čihař <michal@cihar.com>
-#
-# This file is part of Weblate <https://weblate.org/>
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 import json
 import math
@@ -26,8 +11,7 @@ from django.conf import settings
 from django.db import models
 from django.db.models import Q
 from django.utils.encoding import force_str
-from django.utils.translation import gettext as _
-from django.utils.translation import pgettext
+from django.utils.translation import gettext, pgettext
 from jsonschema import validate
 from jsonschema.exceptions import ValidationError
 from translate.misc.xml_helpers import getXMLlang, getXMLspace
@@ -109,16 +93,18 @@ class MemoryManager(models.Manager):
         origin = os.path.basename(fileobj.name).lower()
         name, extension = os.path.splitext(origin)
         if len(name) > 25:
-            origin = "{}...{}".format(name[:25], extension)
+            origin = f"{name[:25]}...{extension}"
 
         if extension == ".tmx":
             result = self.import_tmx(request, fileobj, origin, langmap, **kwargs)
         elif extension == ".json":
             result = self.import_json(request, fileobj, origin, **kwargs)
         else:
-            raise MemoryImportError(_("Unsupported file!"))
+            raise MemoryImportError(gettext("Unsupported file!"))
         if not result:
-            raise MemoryImportError(_("No valid entries found in the uploaded file!"))
+            raise MemoryImportError(
+                gettext("No valid entries found in the uploaded file!")
+            )
         return result
 
     def import_json(self, request, fileobj, origin=None, **kwargs):
@@ -126,13 +112,13 @@ class MemoryManager(models.Manager):
         try:
             data = json.loads(force_str(content))
         except ValueError as error:
-            report_error(cause="Failed to parse memory")
-            raise MemoryImportError(_("Failed to parse JSON file: {!s}").format(error))
+            report_error(cause="Could not parse memory")
+            raise MemoryImportError(gettext("Could not parse JSON file: %s") % error)
         try:
             validate(data, load_schema("weblate-memory.schema.json"))
         except ValidationError as error:
-            report_error(cause="Failed to validate memory")
-            raise MemoryImportError(_("Failed to parse JSON file: {!s}").format(error))
+            report_error(cause="Could not validate memory")
+            raise MemoryImportError(gettext("Could not parse JSON file: %s") % error)
         found = 0
         lang_cache = {}
         for entry in data:
@@ -160,18 +146,21 @@ class MemoryManager(models.Manager):
         try:
             storage = tmxfile.parsefile(fileobj)
         except (SyntaxError, AssertionError):
-            report_error(cause="Failed to parse")
-            raise MemoryImportError(_("Failed to parse TMX file!"))
+            report_error(cause="Could not parse")
+            raise MemoryImportError(gettext("Could not parse TMX file!"))
         header = next(
             storage.document.getroot().iterchildren(storage.namespaced("header"))
         )
         lang_cache = {}
-        try:
-            source_language = Language.objects.get_by_code(
-                header.get("srclang"), lang_cache, langmap
+        srclang = header.get("srclang")
+        if not srclang:
+            raise MemoryImportError(
+                gettext("Source language not defined in the TMX file!")
             )
+        try:
+            source_language = Language.objects.get_by_code(srclang, lang_cache, langmap)
         except Language.DoesNotExist:
-            raise MemoryImportError(_("Failed to find source language!"))
+            raise MemoryImportError(gettext("Could not find language %s!") % srclang)
 
         found = 0
         for unit in storage.units:
@@ -182,7 +171,14 @@ class MemoryManager(models.Manager):
                 lang_code, text = get_node_data(unit, node)
                 if not lang_code or not text:
                     continue
-                language = Language.objects.get_by_code(lang_code, lang_cache, langmap)
+                try:
+                    language = Language.objects.get_by_code(
+                        lang_code, lang_cache, langmap
+                    )
+                except Language.DoesNotExist:
+                    raise MemoryImportError(
+                        gettext("Could not find language %s!") % header.get("srclang")
+                    )
                 translations[language.code] = text
 
             try:
@@ -238,10 +234,14 @@ class Memory(models.Model):
         blank=True,
         default=None,
     )
-    from_file = models.BooleanField(db_index=True, default=False)
-    shared = models.BooleanField(db_index=True, default=False)
+    from_file = models.BooleanField(default=False)
+    shared = models.BooleanField(default=False)
 
     objects = MemoryManager.from_queryset(MemoryQuerySet)()
+
+    class Meta:
+        verbose_name = "Translation memory entry"
+        verbose_name_plural = "Translation memory entries"
 
     def __str__(self):
         return f"Memory: {self.source_language}:{self.target_language}"
