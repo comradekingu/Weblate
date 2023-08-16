@@ -923,7 +923,7 @@ Useful for shared libraries which you use in several projects.
 
 .. _component-is_glossary:
 
-Use as a glossary
+Use as a glossary for other components
 +++++++++++++++++
 
 .. versionadded:: 4.5
